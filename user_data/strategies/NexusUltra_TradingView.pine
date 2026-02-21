@@ -1,0 +1,574 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © NexusUltra Advanced Trading System v1.0
+// Next-Generation Multi-Dimensional Trading Indicator
+// Combines: Smart Money Concepts + Adaptive Regime Detection + Volume Intelligence
+//           + Multi-Timeframe Confluence + Momentum Quality Scoring + AI-Inspired Adaptive Engine
+
+//@version=5
+indicator("NexusUltra - Advanced Trading System", shorttitle="NexusUltra", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500, max_bars_back=5000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  SETTINGS / AYARLAR
+// ══════════════════════════════════════════════════════════════════════════════
+
+// --- Genel Ayarlar ---
+grp_general       = "══ Genel Ayarlar ══"
+sensitivity        = input.int(3, "Sinyal Hassasiyeti (1=Agresif, 5=Konservatif)", minval=1, maxval=5, group=grp_general)
+showDashboard      = input.bool(true, "Dashboard Göster", group=grp_general)
+showSignals        = input.bool(true, "AV/KAPAT Sinyalleri Göster", group=grp_general)
+showSMC            = input.bool(true, "Smart Money Yapıları Göster", group=grp_general)
+showZones          = input.bool(true, "Destek/Direnç Bölgeleri Göster", group=grp_general)
+
+// --- Smart Money Concepts ---
+grp_smc            = "══ Smart Money Concepts ══"
+smcLength          = input.int(10, "Yapı Uzunluğu", minval=5, maxval=50, group=grp_smc)
+obShowCount        = input.int(3, "Gösterilecek Order Block Sayısı", minval=1, maxval=10, group=grp_smc)
+fvgMinSize         = input.float(0.1, "Min FVG Boyutu (%)", minval=0.01, maxval=2.0, step=0.01, group=grp_smc)
+
+// --- Trend & Momentum ---
+grp_trend          = "══ Trend & Momentum ══"
+fastEmaLen         = input.int(9, "Hızlı EMA", minval=3, maxval=50, group=grp_trend)
+midEmaLen          = input.int(21, "Orta EMA", minval=10, maxval=100, group=grp_trend)
+slowEmaLen         = input.int(55, "Yavaş EMA", minval=20, maxval=200, group=grp_trend)
+trendEmaLen        = input.int(200, "Trend EMA", minval=100, maxval=500, group=grp_trend)
+rsiLength          = input.int(14, "RSI Uzunluğu", minval=5, maxval=50, group=grp_trend)
+macdFast           = input.int(12, "MACD Hızlı", minval=5, maxval=30, group=grp_trend)
+macdSlow           = input.int(26, "MACD Yavaş", minval=15, maxval=50, group=grp_trend)
+macdSignal         = input.int(9, "MACD Sinyal", minval=3, maxval=20, group=grp_trend)
+
+// --- Volatilite & Bant ---
+grp_vol            = "══ Volatilite ══"
+bbLength           = input.int(20, "Bollinger Uzunluğu", minval=10, maxval=50, group=grp_vol)
+bbMult             = input.float(2.0, "Bollinger Çarpanı", minval=1.0, maxval=4.0, step=0.1, group=grp_vol)
+kcLength           = input.int(20, "Keltner Uzunluğu", minval=10, maxval=50, group=grp_vol)
+kcMult             = input.float(1.5, "Keltner Çarpanı", minval=0.5, maxval=3.0, step=0.1, group=grp_vol)
+atrLength          = input.int(14, "ATR Uzunluğu", minval=5, maxval=50, group=grp_vol)
+
+// --- Hacim Analizi ---
+grp_volume         = "══ Hacim Analizi ══"
+vwapShow           = input.bool(true, "VWAP Göster", group=grp_volume)
+volMaLen           = input.int(20, "Hacim MA Uzunluğu", minval=5, maxval=100, group=grp_volume)
+volSpikeMulti      = input.float(2.0, "Hacim Spike Çarpanı", minval=1.2, maxval=5.0, step=0.1, group=grp_volume)
+
+// --- Renkler ---
+grp_colors         = "══ Renkler ══"
+bullColor          = input.color(color.new(#00E676, 0), "Boğa Rengi", group=grp_colors)
+bearColor          = input.color(color.new(#FF1744, 0), "Ayı Rengi", group=grp_colors)
+neutralColor       = input.color(color.new(#FFD600, 0), "Nötr Rengi", group=grp_colors)
+obBullColor        = input.color(color.new(#00E676, 80), "Order Block Boğa", group=grp_colors)
+obBearColor        = input.color(color.new(#FF1744, 80), "Order Block Ayı", group=grp_colors)
+fvgColor           = input.color(color.new(#2196F3, 85), "FVG Rengi", group=grp_colors)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  TEMEL HESAPLAMALAR
+// ══════════════════════════════════════════════════════════════════════════════
+
+// --- EMA Sistemi ---
+emaFast            = ta.ema(close, fastEmaLen)
+emaMid             = ta.ema(close, midEmaLen)
+emaSlow            = ta.ema(close, slowEmaLen)
+emaTrend           = ta.ema(close, trendEmaLen)
+
+// --- RSI ---
+rsiVal             = ta.rsi(close, rsiLength)
+rsiMA              = ta.sma(rsiVal, 14)
+rsiOverbought      = 70.0
+rsiOversold        = 30.0
+
+// --- MACD ---
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSignal)
+
+// --- Stochastic RSI ---
+stochK             = ta.sma(ta.stoch(rsiVal, rsiVal, rsiVal, 14), 3)
+stochD             = ta.sma(stochK, 3)
+
+// --- ATR ---
+atrVal             = ta.atr(atrLength)
+atrPercent         = (atrVal / close) * 100
+
+// --- ADX ---
+[diPlus, diMinus, adxVal] = ta.dmi(14, 14)
+
+// --- Bollinger Bands ---
+bbBasis            = ta.sma(close, bbLength)
+bbDev              = ta.stdev(close, bbLength) * bbMult
+bbUpper            = bbBasis + bbDev
+bbLower            = bbBasis - bbDev
+bbWidth            = (bbUpper - bbLower) / bbBasis * 100
+bbPercentB         = (close - bbLower) / (bbUpper - bbLower)
+
+// --- Keltner Channel ---
+kcBasis            = ta.ema(close, kcLength)
+kcRange            = ta.atr(kcLength) * kcMult
+kcUpper            = kcBasis + kcRange
+kcLower            = kcBasis - kcRange
+
+// --- Squeeze Detection (TTM Squeeze) ---
+sqzOn              = bbLower > kcLower and bbUpper < kcUpper
+sqzOff             = bbLower < kcLower or bbUpper > kcUpper
+sqzMom             = ta.linreg(close - math.avg(math.avg(ta.highest(high, kcLength), ta.lowest(low, kcLength)), kcBasis), kcLength, 0)
+sqzMomRising       = sqzMom > sqzMom[1]
+
+// --- Volume Analysis ---
+volMA              = ta.sma(volume, volMaLen)
+volRatio           = volume / volMA
+isVolSpike         = volRatio >= volSpikeMulti
+volDelta           = close > open ? volume : -volume
+cumVolDelta        = ta.sma(volDelta, 10)
+
+// --- VWAP ---
+vwapVal            = ta.vwap(hlc3)
+vwapUpper          = vwapVal + atrVal * 1.5
+vwapLower          = vwapVal - atrVal * 1.5
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  MARKET REGIME DETECTION (Piyasa Rejim Tespiti)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Trend Gücü Hesaplama
+trendStrengthRaw   = (emaFast - emaSlow) / atrVal
+trendStrength      = ta.sma(trendStrengthRaw, 5)
+
+// Volatilite Rejimi
+volRegimeHigh      = atrPercent > ta.sma(atrPercent, 50) * 1.5
+volRegimeLow       = atrPercent < ta.sma(atrPercent, 50) * 0.5
+volRegimeNormal    = not volRegimeHigh and not volRegimeLow
+
+// Piyasa Rejimi: 1=Güçlü Trend Yukarı, 2=Zayıf Trend Yukarı, 3=Range, 4=Zayıf Trend Aşağı, 5=Güçlü Trend Aşağı
+var int marketRegime = 3
+if adxVal > 25 and trendStrength > 1.5
+    marketRegime := 1
+else if adxVal > 20 and trendStrength > 0.5
+    marketRegime := 2
+else if adxVal < 20 and math.abs(trendStrength) < 0.5
+    marketRegime := 3
+else if adxVal > 20 and trendStrength < -0.5
+    marketRegime := 4
+else if adxVal > 25 and trendStrength < -1.5
+    marketRegime := 5
+
+// Regime Label
+regimeText = marketRegime == 1 ? "GÜÇLÜ YUKARI TREND" : marketRegime == 2 ? "YUKARI TREND" : marketRegime == 3 ? "RANGE / YATAY" : marketRegime == 4 ? "AŞAĞI TREND" : "GÜÇLÜ AŞAĞI TREND"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  SMART MONEY CONCEPTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// --- Swing High / Swing Low Detection ---
+swingHigh          = ta.pivothigh(high, smcLength, smcLength)
+swingLow           = ta.pivotlow(low, smcLength, smcLength)
+
+// --- Break of Structure (BOS) & Change of Character (CHoCH) ---
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int lastSwingHighBar = na
+var int lastSwingLowBar = na
+var bool bosUp = false
+var bool bosDown = false
+var bool choch = false
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+    lastSwingHighBar := bar_index - smcLength
+
+if not na(swingLow)
+    lastSwingLow := swingLow
+    lastSwingLowBar := bar_index - smcLength
+
+// BOS: Price breaks above last swing high (bullish) or below last swing low (bearish)
+bosUpSignal        = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh[1]
+bosDownSignal      = not na(lastSwingLow) and close < lastSwingLow and close[1] >= lastSwingLow[1]
+
+if bosUpSignal
+    bosUp := true
+    bosDown := false
+if bosDownSignal
+    bosDown := true
+    bosUp := false
+
+// --- Fair Value Gap (FVG) Detection ---
+fvgBullish         = low > high[2] and (low - high[2]) / close * 100 >= fvgMinSize
+fvgBearish         = high < low[2] and (low[2] - high) / close * 100 >= fvgMinSize
+
+// --- Order Block Detection ---
+// Bullish OB: Last bearish candle before a bullish move
+bullOB             = close[1] < open[1] and close > open and close > high[1] and volume > volMA
+// Bearish OB: Last bullish candle before a bearish move
+bearOB             = close[1] > open[1] and close < open and close < low[1] and volume > volMA
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  DIVERGENCE DETECTION (Uyumsuzluk Tespiti)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// RSI Divergence
+lookbackDiv        = 5
+priceLowRecent     = ta.lowest(low, lookbackDiv)
+priceHighRecent    = ta.highest(high, lookbackDiv)
+rsiLowRecent       = ta.lowest(rsiVal, lookbackDiv)
+rsiHighRecent      = ta.highest(rsiVal, lookbackDiv)
+
+// Bullish Divergence: Price makes lower low but RSI makes higher low
+bullDivergence     = low <= priceLowRecent and rsiVal > rsiLowRecent and rsiVal < 40
+// Bearish Divergence: Price makes higher high but RSI makes lower high
+bearDivergence     = high >= priceHighRecent and rsiVal < rsiHighRecent and rsiVal > 60
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  ADAPTIVE PARAMETER ENGINE (Adaptif Parametre Motoru)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Volatiliteye göre dinamik eşikler
+adaptiveRsiOB      = volRegimeHigh ? 75.0 : volRegimeLow ? 65.0 : rsiOverbought
+adaptiveRsiOS      = volRegimeHigh ? 25.0 : volRegimeLow ? 35.0 : rsiOversold
+
+// Trend gücüne göre sinyal filtreleme çarpanı
+trendFilterMult    = adxVal > 30 ? 0.7 : adxVal > 20 ? 1.0 : 1.3
+
+// Squeeze durumuna göre momentum ağırlığı
+sqzWeight          = sqzOn ? 1.5 : 1.0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  MULTI-DIMENSIONAL CONFLUENCE SCORING ENGINE
+// ██  (Çok Boyutlu Uyum Puanlama Motoru)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Her bir boyut -100 ile +100 arasında puan alır
+// Pozitif = Boğa, Negatif = Ayı
+
+// 1. TREND SKORU (Ağırlık: %25)
+trendScore_ema     = (emaFast > emaMid ? 20.0 : -20.0) + (emaMid > emaSlow ? 15.0 : -15.0) + (emaSlow > emaTrend ? 15.0 : -15.0)
+trendScore_slope   = ta.change(emaMid, 5) > 0 ? 15.0 : -15.0
+trendScore_pos     = close > emaTrend ? 15.0 : -15.0
+trendScore_adx     = adxVal > 25 ? (diPlus > diMinus ? 20.0 : -20.0) : 0.0
+trendScoreRaw      = trendScore_ema + trendScore_slope + trendScore_pos + trendScore_adx
+trendScore         = math.max(-100, math.min(100, trendScoreRaw))
+
+// 2. MOMENTUM SKORU (Ağırlık: %25)
+momScore_rsi       = rsiVal > 55 ? math.min(25.0, (rsiVal - 50) * 1.0) : rsiVal < 45 ? math.max(-25.0, (rsiVal - 50) * 1.0) : 0.0
+momScore_macd      = macdLine > signalLine ? 20.0 : -20.0
+momScore_macdHist  = histLine > 0 and histLine > histLine[1] ? 15.0 : histLine < 0 and histLine < histLine[1] ? -15.0 : 0.0
+momScore_stoch     = stochK > stochD and stochK < 80 ? 15.0 : stochK < stochD and stochK > 20 ? -15.0 : 0.0
+momScore_sqz       = sqzOn ? sqzMomRising ? 25.0 * sqzWeight : -25.0 * sqzWeight : 0.0
+momScoreRaw        = momScore_rsi + momScore_macd + momScore_macdHist + momScore_stoch + momScore_sqz
+momScore           = math.max(-100, math.min(100, momScoreRaw))
+
+// 3. VOLUME SKORU (Ağırlık: %20)
+volScore_ratio     = volRatio > 1.5 ? (close > open ? 30.0 : -30.0) : volRatio > 1.0 ? (close > open ? 15.0 : -15.0) : 0.0
+volScore_delta     = cumVolDelta > 0 ? 25.0 : -25.0
+volScore_vwap      = close > vwapVal ? 25.0 : -25.0
+volScore_spike     = isVolSpike ? (close > open ? 20.0 : -20.0) : 0.0
+volScoreRaw        = volScore_ratio + volScore_delta + volScore_vwap + volScore_spike
+volScore           = math.max(-100, math.min(100, volScoreRaw))
+
+// 4. YAPI SKORU - Smart Money (Ağırlık: %20)
+smcScore_bos       = bosUp ? 30.0 : bosDown ? -30.0 : 0.0
+smcScore_ob        = bullOB ? 25.0 : bearOB ? -25.0 : 0.0
+smcScore_fvg       = fvgBullish ? 20.0 : fvgBearish ? -20.0 : 0.0
+smcScore_div       = bullDivergence ? 25.0 : bearDivergence ? -25.0 : 0.0
+smcScoreRaw        = smcScore_bos + smcScore_ob + smcScore_fvg + smcScore_div
+smcScore           = math.max(-100, math.min(100, smcScoreRaw))
+
+// 5. VOLATİLİTE SKORU (Ağırlık: %10)
+voltyScore_bb      = bbPercentB > 0.8 ? -20.0 : bbPercentB < 0.2 ? 20.0 : 0.0
+voltyScore_sqz     = sqzOn ? 30.0 : -10.0
+voltyScore_regime  = volRegimeHigh ? -20.0 : volRegimeLow ? 20.0 : 0.0
+voltyScore_kc      = close > kcUpper ? -15.0 : close < kcLower ? 15.0 : 0.0
+voltyScoreRaw      = voltyScore_bb + voltyScore_sqz + voltyScore_regime + voltyScore_kc
+voltyScore         = math.max(-100, math.min(100, voltyScoreRaw))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  TOPLAM UYUM SKORU (NEXUS SCORE)
+// ══════════════════════════════════════════════════════════════════════════════
+
+nexusScore         = (trendScore * 0.25) + (momScore * 0.25) + (volScore * 0.20) + (smcScore * 0.20) + (voltyScore * 0.10)
+nexusScoreSmooth   = ta.ema(nexusScore, 3)
+
+// Güven Seviyesi
+confidenceRaw      = math.abs(nexusScoreSmooth)
+confidence         = math.min(100, confidenceRaw)
+confText           = confidence > 80 ? "ÇOK YÜKSEK" : confidence > 60 ? "YÜKSEK" : confidence > 40 ? "ORTA" : confidence > 20 ? "DÜŞÜK" : "ÇOK DÜŞÜK"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  SİNYAL ÜRETME MOTORU (AV / KAPAT)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Hassasiyete göre eşik değerleri
+thresholdEntry     = sensitivity == 1 ? 15.0 : sensitivity == 2 ? 25.0 : sensitivity == 3 ? 35.0 : sensitivity == 4 ? 45.0 : 55.0
+thresholdExit      = sensitivity == 1 ? -10.0 : sensitivity == 2 ? -15.0 : sensitivity == 3 ? -20.0 : sensitivity == 4 ? -25.0 : -30.0
+
+// Ana Sinyal Koşulları
+// LONG AV (Hunt Buy)
+longAvCondition    = nexusScoreSmooth > thresholdEntry
+                     and nexusScoreSmooth > nexusScoreSmooth[1]
+                     and trendScore > 0
+                     and (momScore > 0 or smcScore > 20)
+                     and volume > volMA * 0.5
+
+// SHORT AV (Hunt Sell)
+shortAvCondition   = nexusScoreSmooth < -thresholdEntry
+                     and nexusScoreSmooth < nexusScoreSmooth[1]
+                     and trendScore < 0
+                     and (momScore < 0 or smcScore < -20)
+                     and volume > volMA * 0.5
+
+// LONG KAPAT (Close Long)
+longKapatCondition = nexusScoreSmooth < thresholdExit
+                     and nexusScoreSmooth < nexusScoreSmooth[1]
+                     and (rsiVal > adaptiveRsiOB or bearDivergence or bosDownSignal)
+
+// SHORT KAPAT (Close Short)
+shortKapatCondition = nexusScoreSmooth > math.abs(thresholdExit)
+                      and nexusScoreSmooth > nexusScoreSmooth[1]
+                      and (rsiVal < adaptiveRsiOS or bullDivergence or bosUpSignal)
+
+// Sinyal Filtreleme - Art arda sinyal spam'ını önle
+var int lastLongBar  = 0
+var int lastShortBar = 0
+var int lastCloseBar = 0
+minBarsBetween       = sensitivity * 3
+
+longAv             = longAvCondition and (bar_index - lastLongBar) > minBarsBetween
+shortAv            = shortAvCondition and (bar_index - lastShortBar) > minBarsBetween
+longKapat          = longKapatCondition and (bar_index - lastCloseBar) > minBarsBetween
+shortKapat         = shortKapatCondition and (bar_index - lastCloseBar) > minBarsBetween
+
+if longAv
+    lastLongBar := bar_index
+if shortAv
+    lastShortBar := bar_index
+if longKapat or shortKapat
+    lastCloseBar := bar_index
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  HEDEF ve STOP HESAPLAMA
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ATR bazlı dinamik hedefler
+atrMultiplierSL    = sensitivity == 1 ? 1.0 : sensitivity == 2 ? 1.2 : sensitivity == 3 ? 1.5 : sensitivity == 4 ? 1.8 : 2.0
+atrMultiplierTP1   = 1.5
+atrMultiplierTP2   = 2.5
+atrMultiplierTP3   = 4.0
+
+longSL             = close - atrVal * atrMultiplierSL
+longTP1            = close + atrVal * atrMultiplierTP1
+longTP2            = close + atrVal * atrMultiplierTP2
+longTP3            = close + atrVal * atrMultiplierTP3
+
+shortSL            = close + atrVal * atrMultiplierSL
+shortTP1           = close - atrVal * atrMultiplierTP1
+shortTP2           = close - atrVal * atrMultiplierTP2
+shortTP3           = close - atrVal * atrMultiplierTP3
+
+// Risk/Ödül Oranı
+rrRatio            = atrMultiplierTP2 / atrMultiplierSL
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  GÖRSEL ÇIKTILAR
+// ══════════════════════════════════════════════════════════════════════════════
+
+// --- EMA Çizgileri ---
+plot(emaFast, "EMA Hızlı", color=color.new(#00BCD4, 40), linewidth=1)
+plot(emaMid, "EMA Orta", color=color.new(#FF9800, 40), linewidth=1)
+plot(emaSlow, "EMA Yavaş", color=color.new(#9C27B0, 40), linewidth=2)
+plot(emaTrend, "EMA Trend", color=color.new(#607D8B, 20), linewidth=3)
+
+// --- VWAP ---
+plot(vwapShow ? vwapVal : na, "VWAP", color=color.new(#FFD600, 30), linewidth=2, style=plot.style_stepline)
+
+// --- Bollinger Bands ---
+p_bbUpper = plot(bbUpper, "BB Üst", color=color.new(#E0E0E0, 80))
+p_bbLower = plot(bbLower, "BB Alt", color=color.new(#E0E0E0, 80))
+fill(p_bbUpper, p_bbLower, color=color.new(#E0E0E0, 95))
+
+// --- Keltner Channel (sadece squeeze durumunda) ---
+plot(sqzOn ? kcUpper : na, "KC Üst", color=color.new(neutralColor, 60), style=plot.style_cross)
+plot(sqzOn ? kcLower : na, "KC Alt", color=color.new(neutralColor, 60), style=plot.style_cross)
+
+// --- Trend Arka Plan Rengi ---
+bgColor = marketRegime == 1 ? color.new(bullColor, 95) : marketRegime == 2 ? color.new(bullColor, 97) : marketRegime == 4 ? color.new(bearColor, 97) : marketRegime == 5 ? color.new(bearColor, 95) : color.new(neutralColor, 98)
+bgcolor(bgColor)
+
+// --- Squeeze Göstergesi ---
+plotshape(sqzOn and sqzOn[1] == false, "Squeeze Başlangıç", shape.diamond, location.belowbar, color=neutralColor, size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  AV / KAPAT SİNYAL ETİKETLERİ
+// ══════════════════════════════════════════════════════════════════════════════
+
+if showSignals
+    // LONG AV
+    if longAv
+        label.new(bar_index, low - atrVal * 0.5,
+             "🎯 AV (LONG)\nGüven: " + confText + "\nSkor: " + str.tostring(math.round(nexusScoreSmooth, 1)) +
+             "\nTP1: " + str.tostring(math.round(longTP1, 2)) +
+             "\nTP2: " + str.tostring(math.round(longTP2, 2)) +
+             "\nTP3: " + str.tostring(math.round(longTP3, 2)) +
+             "\nSL: " + str.tostring(math.round(longSL, 2)) +
+             "\nR/R: " + str.tostring(math.round(rrRatio, 1)),
+             color=bullColor, textcolor=color.white, style=label.style_label_up, size=size.normal)
+
+        // TP & SL Çizgileri
+        line.new(bar_index, longTP1, bar_index + 20, longTP1, color=color.new(bullColor, 50), style=line.style_dashed, width=1)
+        line.new(bar_index, longTP2, bar_index + 30, longTP2, color=color.new(bullColor, 30), style=line.style_dashed, width=1)
+        line.new(bar_index, longTP3, bar_index + 40, longTP3, color=color.new(bullColor, 10), style=line.style_dashed, width=2)
+        line.new(bar_index, longSL, bar_index + 20, longSL, color=color.new(bearColor, 30), style=line.style_solid, width=2)
+
+    // SHORT AV
+    if shortAv
+        label.new(bar_index, high + atrVal * 0.5,
+             "🎯 AV (SHORT)\nGüven: " + confText + "\nSkor: " + str.tostring(math.round(nexusScoreSmooth, 1)) +
+             "\nTP1: " + str.tostring(math.round(shortTP1, 2)) +
+             "\nTP2: " + str.tostring(math.round(shortTP2, 2)) +
+             "\nTP3: " + str.tostring(math.round(shortTP3, 2)) +
+             "\nSL: " + str.tostring(math.round(shortSL, 2)) +
+             "\nR/R: " + str.tostring(math.round(rrRatio, 1)),
+             color=bearColor, textcolor=color.white, style=label.style_label_down, size=size.normal)
+
+        line.new(bar_index, shortTP1, bar_index + 20, shortTP1, color=color.new(bearColor, 50), style=line.style_dashed, width=1)
+        line.new(bar_index, shortTP2, bar_index + 30, shortTP2, color=color.new(bearColor, 30), style=line.style_dashed, width=1)
+        line.new(bar_index, shortTP3, bar_index + 40, shortTP3, color=color.new(bearColor, 10), style=line.style_dashed, width=2)
+        line.new(bar_index, shortSL, bar_index + 20, shortSL, color=color.new(bullColor, 30), style=line.style_solid, width=2)
+
+    // LONG KAPAT
+    if longKapat
+        label.new(bar_index, high + atrVal * 0.3,
+             "⛔ KAPAT (LONG)\nSkor: " + str.tostring(math.round(nexusScoreSmooth, 1)),
+             color=color.new(bearColor, 20), textcolor=color.white, style=label.style_label_down, size=size.small)
+
+    // SHORT KAPAT
+    if shortKapat
+        label.new(bar_index, low - atrVal * 0.3,
+             "⛔ KAPAT (SHORT)\nSkor: " + str.tostring(math.round(nexusScoreSmooth, 1)),
+             color=color.new(bullColor, 20), textcolor=color.white, style=label.style_label_up, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  SMART MONEY GÖRSELLER
+// ══════════════════════════════════════════════════════════════════════════════
+
+if showSMC
+    // Order Block Kutuları
+    if bullOB
+        box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color=bullColor, bgcolor=obBullColor, text="OB+", text_color=bullColor, text_size=size.tiny)
+    if bearOB
+        box.new(bar_index - 1, high[1], bar_index + 10, low[1], border_color=bearColor, bgcolor=obBearColor, text="OB-", text_color=bearColor, text_size=size.tiny)
+
+    // Fair Value Gap
+    if fvgBullish
+        box.new(bar_index - 2, high[2], bar_index, low, border_color=color.new(fvgColor, 50), bgcolor=fvgColor, text="FVG+", text_color=color.new(#2196F3, 30), text_size=size.tiny)
+    if fvgBearish
+        box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(fvgColor, 50), bgcolor=fvgColor, text="FVG-", text_color=color.new(#2196F3, 30), text_size=size.tiny)
+
+    // BOS Labels
+    if bosUpSignal
+        label.new(bar_index, high + atrVal * 0.2, "BOS ▲", color=color.new(bullColor, 60), textcolor=bullColor, style=label.style_none, size=size.tiny)
+    if bosDownSignal
+        label.new(bar_index, low - atrVal * 0.2, "BOS ▼", color=color.new(bearColor, 60), textcolor=bearColor, style=label.style_none, size=size.tiny)
+
+// --- Divergence Labels ---
+plotshape(bullDivergence, "Boğa Uyumsuzluk", shape.triangleup, location.belowbar, color=color.new(bullColor, 30), size=size.tiny)
+plotshape(bearDivergence, "Ayı Uyumsuzluk", shape.triangledown, location.abovebar, color=color.new(bearColor, 30), size=size.tiny)
+
+// --- Hacim Spike ---
+plotshape(isVolSpike and close > open, "Boğa Hacim Spike", shape.circle, location.belowbar, color=color.new(bullColor, 60), size=size.tiny)
+plotshape(isVolSpike and close < open, "Ayı Hacim Spike", shape.circle, location.abovebar, color=color.new(bearColor, 60), size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  DASHBOARD (Kontrol Paneli)
+// ══════════════════════════════════════════════════════════════════════════════
+
+if showDashboard and barstate.islast
+    var table dash = table.new(position.top_right, 2, 14, border_width=1, border_color=color.new(#424242, 0), bgcolor=color.new(#1A1A2E, 5))
+
+    headerBg = color.new(#0D0D1A, 0)
+    headerTxt = color.white
+
+    // Başlık
+    table.cell(dash, 0, 0, "NEXUS ULTRA", bgcolor=headerBg, text_color=color.new(#00E5FF, 0), text_size=size.normal)
+    table.cell(dash, 1, 0, "DASHBOARD", bgcolor=headerBg, text_color=color.new(#00E5FF, 0), text_size=size.normal)
+
+    // Nexus Skor
+    nexusColor = nexusScoreSmooth > 30 ? bullColor : nexusScoreSmooth < -30 ? bearColor : neutralColor
+    table.cell(dash, 0, 1, "NEXUS SKOR", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(math.round(nexusScoreSmooth, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=nexusColor, text_size=size.normal)
+
+    // Güven
+    confColor = confidence > 60 ? bullColor : confidence > 40 ? neutralColor : bearColor
+    table.cell(dash, 0, 2, "GÜVEN", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 2, confText + " (" + str.tostring(math.round(confidence, 0)) + "%)", bgcolor=color.new(#1A1A2E, 0), text_color=confColor, text_size=size.small)
+
+    // Piyasa Rejimi
+    regimeColor = marketRegime <= 2 ? bullColor : marketRegime >= 4 ? bearColor : neutralColor
+    table.cell(dash, 0, 3, "REJİM", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 3, regimeText, bgcolor=color.new(#1A1A2E, 0), text_color=regimeColor, text_size=size.small)
+
+    // Trend Skoru
+    trendColor = trendScore > 20 ? bullColor : trendScore < -20 ? bearColor : neutralColor
+    table.cell(dash, 0, 4, "TREND", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(math.round(trendScore, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=trendColor, text_size=size.small)
+
+    // Momentum Skoru
+    momColor = momScore > 20 ? bullColor : momScore < -20 ? bearColor : neutralColor
+    table.cell(dash, 0, 5, "MOMENTUM", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 5, str.tostring(math.round(momScore, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=momColor, text_size=size.small)
+
+    // Hacim Skoru
+    volSColor = volScore > 20 ? bullColor : volScore < -20 ? bearColor : neutralColor
+    table.cell(dash, 0, 6, "HACİM", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 6, str.tostring(math.round(volScore, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=volSColor, text_size=size.small)
+
+    // SMC Skoru
+    smcColor = smcScore > 20 ? bullColor : smcScore < -20 ? bearColor : neutralColor
+    table.cell(dash, 0, 7, "SMART MONEY", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 7, str.tostring(math.round(smcScore, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=smcColor, text_size=size.small)
+
+    // Volatilite
+    voltyColor = volRegimeHigh ? bearColor : volRegimeLow ? bullColor : neutralColor
+    voltyText = volRegimeHigh ? "YÜKSEK" : volRegimeLow ? "DÜŞÜK" : "NORMAL"
+    table.cell(dash, 0, 8, "VOLATİLİTE", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 8, voltyText + " (ATR: " + str.tostring(math.round(atrPercent, 2)) + "%)", bgcolor=color.new(#1A1A2E, 0), text_color=voltyColor, text_size=size.small)
+
+    // Squeeze
+    sqzColor = sqzOn ? neutralColor : color.gray
+    sqzText = sqzOn ? (sqzMomRising ? "SIKIŞMA ▲" : "SIKIŞMA ▼") : "YOK"
+    table.cell(dash, 0, 9, "SQUEEZE", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 9, sqzText, bgcolor=color.new(#1A1A2E, 0), text_color=sqzColor, text_size=size.small)
+
+    // RSI
+    rsiColor = rsiVal > 70 ? bearColor : rsiVal < 30 ? bullColor : color.white
+    table.cell(dash, 0, 10, "RSI", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 10, str.tostring(math.round(rsiVal, 1)), bgcolor=color.new(#1A1A2E, 0), text_color=rsiColor, text_size=size.small)
+
+    // ADX
+    adxColor = adxVal > 25 ? bullColor : color.gray
+    table.cell(dash, 0, 11, "ADX", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 11, str.tostring(math.round(adxVal, 1)) + (adxVal > 25 ? " (GÜÇLÜ)" : " (ZAYIF)"), bgcolor=color.new(#1A1A2E, 0), text_color=adxColor, text_size=size.small)
+
+    // Hacim Oranı
+    volRColor = volRatio > 2 ? bullColor : volRatio > 1 ? neutralColor : color.gray
+    table.cell(dash, 0, 12, "HACİM ORANI", bgcolor=color.new(#1A1A2E, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 12, str.tostring(math.round(volRatio, 2)) + "x", bgcolor=color.new(#1A1A2E, 0), text_color=volRColor, text_size=size.small)
+
+    // Sinyal Durumu
+    sigText = longAv ? "🎯 LONG AV" : shortAv ? "🎯 SHORT AV" : longKapat ? "⛔ LONG KAPAT" : shortKapat ? "⛔ SHORT KAPAT" : "BEKLEMEDe"
+    sigColor = longAv ? bullColor : shortAv ? bearColor : longKapat or shortKapat ? neutralColor : color.gray
+    table.cell(dash, 0, 13, "SİNYAL", bgcolor=color.new(#0D0D1A, 0), text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 13, sigText, bgcolor=color.new(#0D0D1A, 0), text_color=sigColor, text_size=size.normal)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  ALERT KOŞULLARI
+// ══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(longAv, title="LONG AV Sinyali", message="NexusUltra: 🎯 LONG AV sinyali! Skor: {{plot_0}} | Güven: " + confText)
+alertcondition(shortAv, title="SHORT AV Sinyali", message="NexusUltra: 🎯 SHORT AV sinyali! Skor: {{plot_0}} | Güven: " + confText)
+alertcondition(longKapat, title="LONG KAPAT Sinyali", message="NexusUltra: ⛔ LONG KAPAT sinyali! Skor: {{plot_0}}")
+alertcondition(shortKapat, title="SHORT KAPAT Sinyali", message="NexusUltra: ⛔ SHORT KAPAT sinyali! Skor: {{plot_0}}")
+alertcondition(sqzOn and sqzOn[1] == false, title="Squeeze Başladı", message="NexusUltra: Squeeze (sıkışma) başladı!")
+alertcondition(isVolSpike, title="Hacim Spike", message="NexusUltra: Hacim spike tespit edildi! Oran: " + str.tostring(math.round(volRatio, 2)) + "x")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ██  NEXUS SCORE ALT GÖSTERGE (Overlay olmayan ayrı pencerede kullanmak için)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// plot(nexusScoreSmooth, "Nexus Score", color=nexusColor, linewidth=2, display=display.none)
+// hline(50, "Güçlü Boğa", color=color.new(bullColor, 70), linestyle=hline.style_dotted, display=display.none)
+// hline(-50, "Güçlü Ayı", color=color.new(bearColor, 70), linestyle=hline.style_dotted, display=display.none)
+// hline(0, "Nötr", color=color.new(color.gray, 70), linestyle=hline.style_solid, display=display.none)
