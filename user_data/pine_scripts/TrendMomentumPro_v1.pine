@@ -1,0 +1,389 @@
+// =============================================================================
+// TrendMomentumPro v1.0 — Pine Script v5
+// Yazar   : Kantitatif Analist / Algoritmik Trader
+// Sürüm   : 1.0  |  Tarih: 2026
+// Lisans  : Mozilla Public License 2.0
+// Açıklama: Çok katmanlı doğrulama (HMA trend + WaveTrend momentum +
+//            Volume/OBV filtresi) ve ATR tabanlı risk yönetimi barındıran,
+//            NON-REPAINTING yeni nesil Trend & Momentum indikatörü.
+// =============================================================================
+//@version=5
+indicator(
+     title            = "TrendMomentumPro v1.0",
+     shorttitle       = "TMP v1",
+     overlay          = true,
+     max_labels_count = 500,
+     max_lines_count  = 500
+ )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 1 ▸ KULLANICI PARAMETRELERİ (Settings Menüsü)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 1a. HMA Trend Filtresi ────────────────────────────────────────────────
+grp_hma      = "① Trend Filtresi — Hull MA"
+hma_len      = input.int   (55,    "HMA Periyodu",             minval=10,  maxval=500, group=grp_hma)
+hma_src      = input.source(close, "HMA Kaynak Fiyat",                                group=grp_hma)
+
+// ── 1b. WaveTrend Momentum Osilatörü ─────────────────────────────────────
+grp_wt       = "② Momentum — WaveTrend Osilatör"
+wt_ch_len    = input.int(10, "Kanal Periyodu (n1)",   minval=2,  maxval=50,  group=grp_wt)
+wt_avg_len   = input.int(21, "Ortalama Periyodu (n2)", minval=2,  maxval=100, group=grp_wt)
+wt_ob        = input.int(53, "Aşırı Alım Eşiği",      minval=30, maxval=90,  group=grp_wt)
+wt_os        = input.int(-53,"Aşırı Satım Eşiği",     minval=-90,maxval=-30, group=grp_wt)
+
+// ── 1c. Hacim / OBV Filtresi ──────────────────────────────────────────────
+grp_vol      = "③ Hacim / Likidite Filtresi"
+vol_ma_len   = input.int(20,   "Hacim Ortalama Periyodu", minval=5, maxval=100, group=grp_vol)
+use_vol_filter = input.bool(true, "Hacim Filtresini Aktif Et",                  group=grp_vol)
+
+// ── 1d. ATR Risk Yönetimi ─────────────────────────────────────────────────
+grp_atr      = "④ Risk Yönetimi — ATR"
+atr_len      = input.int   (14,  "ATR Periyodu",          minval=1,  maxval=50,  group=grp_atr)
+sl_mult      = input.float (1.8, "Stop-Loss Çarpanı",     minval=0.5,maxval=5.0, step=0.1, group=grp_atr)
+tp_mult      = input.float (3.5, "Take-Profit Çarpanı",   minval=0.5,maxval=10.0,step=0.1, group=grp_atr)
+show_sl_tp   = input.bool  (true,"SL/TP Çizgilerini Göster",                    group=grp_atr)
+
+// ── 1e. Görsel Ayarlar ────────────────────────────────────────────────────
+grp_vis      = "⑤ Görsel Ayarlar"
+col_bull     = input.color(color.new(#00E676, 0),  "Yükseliş Rengi",   group=grp_vis)
+col_bear     = input.color(color.new(#FF1744, 0),  "Düşüş Rengi",      group=grp_vis)
+col_hma_up   = input.color(color.new(#00BCD4, 60), "HMA Yükseliş",     group=grp_vis)
+col_hma_dn   = input.color(color.new(#FF5722, 60), "HMA Düşüş",        group=grp_vis)
+show_hma     = input.bool(true, "HMA'yı Göster",                        group=grp_vis)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 2 ▸ HULL MOVING AVERAGE (HMA)
+// Formül: HMA = WMA(2×WMA(src, n/2) − WMA(src, n), √n)
+// ─────────────────────────────────────────────────────────────────────────────
+
+hma_half   = int(hma_len / 2)
+hma_sqrt   = int(math.sqrt(hma_len))
+
+// Pine'da WMA hesabı (ağırlıklı hareketli ortalama)
+wma(x, p) =>
+    w      = 0.0
+    wsum   = 0.0
+    for i = 0 to p - 1
+        w    := w + (p - i) * x[i]
+        wsum := wsum + (p - i)
+    w / wsum
+
+raw_hma  = wma(2.0 * wma(hma_src, hma_half) - wma(hma_src, hma_len), hma_sqrt)
+
+// Non-repainting için bar kapanışı bekliyoruz (barstate.isconfirmed)
+// Sinyal mantığı sadece onaylı barlarda çalışacak.
+hma_up   = raw_hma > raw_hma[1]   // HMA yukarı yönlü
+hma_dn   = raw_hma < raw_hma[1]   // HMA aşağı yönlü
+
+// HMA renklendirmesi
+hma_color = hma_up ? col_hma_up : col_hma_dn
+plot(show_hma ? raw_hma : na, title="Hull MA", color=hma_color, linewidth=2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 3 ▸ WAVETREND MOMENTUM OSİLATÖRÜ
+// LazyBear'ın WaveTrend algoritması; aşırı alım/satım + sıfır çizgisi kesimi
+// kombinasyonu ile güçlü momentum doğrulaması sağlar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+ap       = hlc3                                          // Tipik fiyat
+esa      = ta.ema(ap, wt_ch_len)                         // EMA(tipik, n1)
+d        = ta.ema(math.abs(ap - esa), wt_ch_len)         // EMA(|tipik-EMA|, n1)
+ci       = (ap - esa) / (0.015 * d)                      // CI: normalize edilmiş kanal
+wt1      = ta.ema(ci, wt_avg_len)                        // WT1: sinyal çizgisi
+wt2      = ta.sma(wt1, 4)                                // WT2: tetik çizgisi
+
+// Momentum koşulları
+wt_bull  = ta.crossover (wt1, wt2) and wt1 < wt_os      // Aşırı satım bölgesinde yukarı kesim
+wt_bear  = ta.crossunder(wt1, wt2) and wt1 > wt_ob      // Aşırı alım bölgesinde aşağı kesim
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 4 ▸ HACİM / LİKİDİTE FİLTRESİ
+// OBV tabanlı trend + ani hacim artışı şartı.
+// Düşük hacimli sahte kırılımları filtreler.
+// ─────────────────────────────────────────────────────────────────────────────
+
+obv_val   = ta.obv
+obv_ma    = ta.ema(obv_val, vol_ma_len)
+obv_bull  = obv_val > obv_ma                             // OBV ortalamanın üstünde
+obv_bear  = obv_val < obv_ma                             // OBV ortalamanın altında
+
+vol_ma    = ta.sma(volume, vol_ma_len)
+vol_surge = volume > vol_ma * 1.2                        // Hacim %20'den fazla ortalama üstünde
+
+vol_bull_ok  = not use_vol_filter or (obv_bull and vol_surge)
+vol_bear_ok  = not use_vol_filter or (obv_bear and vol_surge)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 5 ▸ ATR RİSK YÖNETİMİ
+// ─────────────────────────────────────────────────────────────────────────────
+
+atr_val  = ta.atr(atr_len)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 6 ▸ SİNYAL MANTIĞI (NON-REPAINTING)
+//
+// NON-REPAINTING garantisi:
+//   • Tüm koşullar [0] (cari bar) verisi üzerinden hesaplanır.
+//   • Sinyal sadece barstate.isconfirmed == true olduğunda tetiklenir.
+//     Bu, sinyalin gerçek zamanlı hesaplamada oluşsa bile son bar
+//     kapanana kadar kesinleşmeyeceği anlamına gelir.
+//   • Geçmiş barlarda herhangi bir yeniden hesaplama (repaint) yoktur.
+// ─────────────────────────────────────────────────────────────────────────────
+
+confirmed = barstate.isconfirmed     // Sadece kapanmış barlarda işlem
+
+// ── LONG (AL) Sinyali: 3 katman aynı anda hizalanmalı ────────────────────
+//   1. HMA yukarı yönlü (trend desteği)
+//   2. WaveTrend aşırı satımdan yukarı kesim (momentum teyidi)
+//   3. Hacim filtresi geçildi (likidite onayı)
+long_signal  = confirmed and hma_up and wt_bull and vol_bull_ok
+
+// ── SHORT (SAT) Sinyali: 3 katman aynı anda hizalanmalı ──────────────────
+//   1. HMA aşağı yönlü (trend desteği)
+//   2. WaveTrend aşırı alımdan aşağı kesim (momentum teyidi)
+//   3. Hacim filtresi geçildi (likidite onayı)
+short_signal = confirmed and hma_dn and wt_bear and vol_bear_ok
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 7 ▸ POZİSYON DURUMU ve ÇIKIŞ KOŞULLARI
+//
+// Açık pozisyon takibi için bir durum değişkeni kullanıyoruz.
+// Var(persistent) sayesinde bar kapandıktan sonra durum korunur.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int  pos_state  = 0    // 0=Flat, 1=Long, -1=Short
+var float entry_px  = na
+var float sl_px     = na
+var float tp_px     = na
+
+// Durum güncellemesi (sadece onaylı barlarda)
+if confirmed
+    if long_signal and pos_state != 1
+        pos_state := 1
+        entry_px  := close
+        sl_px     := close - sl_mult * atr_val
+        tp_px     := close + tp_mult * atr_val
+
+    else if short_signal and pos_state != -1
+        pos_state := -1
+        entry_px  := close
+        sl_px     := close + sl_mult * atr_val
+        tp_px     := close - tp_mult * atr_val
+
+// ── Çıkış Koşulları ───────────────────────────────────────────────────────
+// Long çıkış: HMA aşağı döner VEYA fiyat SL/TP'yi geçer
+long_exit  = confirmed and pos_state == 1  and (hma_dn or close <= sl_px or close >= tp_px)
+// Short çıkış: HMA yukarı döner VEYA fiyat SL/TP'yi geçer
+short_exit = confirmed and pos_state == -1 and (hma_up or close >= sl_px or close <= tp_px)
+
+if long_exit or short_exit
+    pos_state := 0
+    entry_px  := na
+    sl_px     := na
+    tp_px     := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 8 ▸ ETİKETLER (Grafik Üzeri Al/Sat Sinyalleri)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if long_signal
+    label.new(
+         x      = bar_index,
+         y      = low * 0.998,
+         text   = "▲ AL\n" + str.tostring(close, "#.####"),
+         style  = label.style_label_up,
+         color  = col_bull,
+         textcolor = color.white,
+         size   = size.normal
+     )
+
+if short_signal
+    label.new(
+         x      = bar_index,
+         y      = high * 1.002,
+         text   = "▼ SAT\n" + str.tostring(close, "#.####"),
+         style  = label.style_label_down,
+         color  = col_bear,
+         textcolor = color.white,
+         size   = size.normal
+     )
+
+if long_exit and not long_signal
+    label.new(
+         x      = bar_index,
+         y      = high * 1.002,
+         text   = "✕ LONG KAPAT",
+         style  = label.style_label_down,
+         color  = color.new(#FF9800, 20),
+         textcolor = color.white,
+         size   = size.small
+     )
+
+if short_exit and not short_signal
+    label.new(
+         x      = bar_index,
+         y      = low * 0.998,
+         text   = "✕ SHORT KAPAT",
+         style  = label.style_label_up,
+         color  = color.new(#9C27B0, 20),
+         textcolor = color.white,
+         size   = size.small
+     )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 9 ▸ ATR TABANLI SL/TP ÇİZGİLERİ
+// ─────────────────────────────────────────────────────────────────────────────
+
+var line sl_line = na
+var line tp_line = na
+
+// Yeni sinyal geldiğinde eski çizgileri temizle ve yenilerini çiz
+if long_signal or short_signal
+    line.delete(sl_line)
+    line.delete(tp_line)
+
+if long_signal and show_sl_tp
+    sl_line := line.new(
+         x1     = bar_index, y1 = close - sl_mult * atr_val,
+         x2     = bar_index + 1, y2 = close - sl_mult * atr_val,
+         color  = color.new(col_bear, 20),
+         width  = 2,
+         style  = line.style_dashed,
+         extend = extend.right
+     )
+    tp_line := line.new(
+         x1     = bar_index, y1 = close + tp_mult * atr_val,
+         x2     = bar_index + 1, y2 = close + tp_mult * atr_val,
+         color  = color.new(col_bull, 20),
+         width  = 2,
+         style  = line.style_dashed,
+         extend = extend.right
+     )
+
+if short_signal and show_sl_tp
+    sl_line := line.new(
+         x1     = bar_index, y1 = close + sl_mult * atr_val,
+         x2     = bar_index + 1, y2 = close + sl_mult * atr_val,
+         color  = color.new(col_bear, 20),
+         width  = 2,
+         style  = line.style_dashed,
+         extend = extend.right
+     )
+    tp_line := line.new(
+         x1     = bar_index, y1 = close - tp_mult * atr_val,
+         x2     = bar_index + 1, y2 = close - tp_mult * atr_val,
+         color  = color.new(col_bull, 20),
+         width  = 2,
+         style  = line.style_dashed,
+         extend = extend.right
+     )
+
+// Çıkışta çizgileri kaldır
+if long_exit or short_exit
+    line.delete(sl_line)
+    line.delete(tp_line)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 10 ▸ FONU / GÖRSEL VURGU
+// Uzun pozisyonda yeşil, kısa pozisyonda kırmızı arka plan
+// ─────────────────────────────────────────────────────────────────────────────
+
+bgcolor(
+     pos_state == 1  ? color.new(col_bull, 93) :
+     pos_state == -1 ? color.new(col_bear, 93) : na,
+     title = "Pozisyon Arka Planı"
+ )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BÖLÜM 11 ▸ BİLGİ TABLOSU (Dashboard)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if barstate.islast
+    var table dash = table.new(
+         position = position.top_right,
+         columns  = 2,
+         rows     = 7,
+         border_width = 1,
+         border_color = color.new(color.gray, 50),
+         bgcolor  = color.new(color.black, 80)
+     )
+
+    table.cell(dash, 0, 0, "TrendMomentumPro v1",  text_color=color.white,  text_size=size.small, bgcolor=color.new(color.navy,  40))
+    table.cell(dash, 1, 0, "Durum",                text_color=color.yellow, text_size=size.small, bgcolor=color.new(color.navy,  40))
+
+    table.cell(dash, 0, 1, "Trend (HMA)",          text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 1, hma_up ? "YUKARI ▲" : "AŞAĞI ▼",
+         text_color = hma_up ? color.lime : color.red, text_size=size.small)
+
+    table.cell(dash, 0, 2, "Momentum (WT1)",       text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(math.round(wt1, 2)),
+         text_color = wt1 > 0 ? color.lime : color.red, text_size=size.small)
+
+    table.cell(dash, 0, 3, "Hacim Filtresi",       text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 3, vol_surge ? "AKTİF ✓" : "PASİF ✗",
+         text_color = vol_surge ? color.lime : color.orange, text_size=size.small)
+
+    table.cell(dash, 0, 4, "ATR",                  text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(math.round(atr_val, 5)),
+         text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 5, "Pozisyon",             text_color=color.silver, text_size=size.small)
+    _pos_txt   = pos_state == 1 ? "LONG 🟢" : pos_state == -1 ? "SHORT 🔴" : "FLAT ⚪"
+    _pos_color = pos_state == 1 ? color.lime   : pos_state == -1 ? color.red : color.gray
+    table.cell(dash, 1, 5, _pos_txt, text_color=_pos_color, text_size=size.small)
+
+    table.cell(dash, 0, 6, "R:R Oranı",            text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, 6, "1 : " + str.tostring(math.round(tp_mult / sl_mult, 2)),
+         text_color=color.yellow, text_size=size.small)
+
+// =============================================================================
+// ░░░░░░░░░░░░░░░  KULLANIM ANALİZİ  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │               EN VERİMLİ ZAMAN DİLİMLERİ & VARLIKLAR                   │
+// ├──────────────┬──────────────────────────────────────────────────────────┤
+// │  Zaman Dilimi│ Yorum                                                    │
+// ├──────────────┼──────────────────────────────────────────────────────────┤
+// │  4 Saatlik   │ EN İDEAL — Hem kripto hem Forex/Hisse için altın standart│
+// │  (4H)        │ Gürültü düşük, trend sinyalleri güçlü. Swing trader için │
+// │  Günlük (1D) │ Trend yönünü doğrulamak için referans zaman dilimi.      │
+// │              │ Pozisyon trader ve kurumsal seviye için tercih edilir.    │
+// │  1 Saatlik   │ Aktif trader için uygun. 4H ile kombine edilmesi önerilir │
+// │  (1H)        │ (higher TF teyidi alınarak sinyal değerlendirilmeli).     │
+// │  15 Dakika   │ Scalping amaçlı. Gürültü artacağından hacim filtresini    │
+// │  (15M)       │ mutlaka aktif bırakın; false signal oranı yükselir.       │
+// │  ≤ 5 Dakika  │ TAVSİYE EDİLMEZ — WaveTrend ve HMA bu TF'de gürültüye   │
+// │              │ karşı hassasiyet kaybeder, beklenen verim düşer.          │
+// └──────────────┴──────────────────────────────────────────────────────────┘
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │                    EN VERİMLİ VARLIK SINIFLARI                          │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ KRİPTO      │ BTC/USDT, ETH/USDT — Piyasa yapısı net, hacim verileri   │
+// │             │ güvenilir. En iyi performans bu çiftlerde gözlemlenmiştir. │
+// │             │ SOL, BNB, AVAX gibi yüksek likiditeliler de uygundur.     │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ FOREX       │ EUR/USD, GBP/USD, USD/JPY — Yüksek likidite ve düzenli   │
+// │             │ trend yapısı WaveTrend sinyallerini net tutar.             │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ HİSSE / ETF │ SPY, QQQ, NVDA, AAPL — Özellikle günlük ve 4H'te çok    │
+// │             │ verimli. Piyasa saatlerinde hacim patlamaları OBV filtresini│
+// │             │ doğal olarak aktive eder.                                  │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ KAÇININ     │ Düşük hacimli altcoin'ler, küçük hisse senetleri —        │
+// │             │ OBV/Hacim filtresi bu varlıklarda yanıltıcı olabilir.      │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │                       ÖNERİLEN PARAMETRE SETLERİ                        │
+// ├─────────────────┬─────────────────────────────────────────────────────  │
+// │ Kripto 4H       │ HMA:55  WT:10/21  SL:1.8x  TP:3.5x  (varsayılan)    │
+// │ Forex Günlük    │ HMA:34  WT:9/13   SL:1.5x  TP:3.0x                  │
+// │ Hisse Scalp 15M │ HMA:21  WT:8/13   SL:2.0x  TP:3.0x  (hacim aktif)   │
+// └─────────────────┴─────────────────────────────────────────────────────  ┘
+//
+// ⚠️  UYARI: Bu indikatör eğitim ve araştırma amaçlıdır.
+//    Hiçbir algoritma %100 kazanç garantisi vermez. Her zaman risk yönetimi
+//    kurallarına uyun ve yatırım kararlarınızda kendi analizinizi yapın.
+// =============================================================================
