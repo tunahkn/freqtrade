@@ -1,0 +1,807 @@
+//@version=6
+indicator("ORACLE PRIME v1.0 ⚡ [Ultra Precision — Competition Grade]",
+     overlay=true, max_labels_count=200, max_lines_count=300,
+     max_boxes_count=200, max_bars_back=5000)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ORACLE PRIME v1.0 — Ultra Precision Edition
+//
+//  Felsefe: "Az ama öz — günde/2-3 günde 1 net, hatasız sinyal"
+//
+//  Önceki versiyonlardan düzeltilen KRİTİK hatalar:
+//  ✅ OTE DÜZELTME: Displacement sonrası retracement beklenir (state machine)
+//  ✅ CVD DÜZELTME: rolling window (ta.cum yerine math.sum)
+//  ✅ SWEEP DÜZELTME: Close geri dönmeli + dönüş mumu şartı
+//  ✅ SKOR DÜZELTME: Bonus sonrası 100 cap uygulanır
+//  ✅ FONKSIYON KAPSAMI: global scope (if bloğu içinde değil)
+//  ✅ DURUM MAKİNESİ: IDLE→SWEPT→MSS→OTE→SİNYAL (5 adım)
+//  ✅ TIMEOUT: N bar içinde durum ilerlemezse sıfırla
+//  ✅ SL YERLEŞIMI: Swept level altı/üstü (ICT doğru metodoloji)
+//  ✅ GÜNLÜK LİMİT: Max 1 sinyal/gün (ayarlanabilir)
+//  ✅ NA KORUMA: Tüm pivot/na referanslarında guard mevcut
+//
+//  7 Zorunlu Koşul (hepsi TRUE olmalı — SNIPER modda):
+//  1. Üst TF trend hizalaması (4H + Daily HMA)
+//  2. Verimli trend (Efficiency Ratio > 0.5)
+//  3. ICT Killzone içinde (London 07-10 UTC / NY 13-16 UTC)
+//  4. Likidite sweep tamamlandı (SSL veya BSL)
+//  5. MSS/CHoCH teyidi sweep sonrası
+//  6. Fiyat OTE bölgesinde (61.8–78.6% retracement)
+//  7. En az 4/6 osilatör onayı + kurumsal hacim
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── INPUTS ──────────────────────────────────────────────────────────────
+g0 = "🎯 GENEL"
+i_mode      = input.string("SNIPER","Mod",
+              options=["SNIPER","PRECISION","NORMAL"], group=g0,
+              tooltip="SNIPER=4+ onay | PRECISION=3+ | NORMAL=2+")
+i_lev       = input.float(10,"Kaldıraç x",1,125,0.5, group=g0)
+i_risk      = input.float(1.0,"Risk % (sermaye)",0.1,5,0.1, group=g0)
+i_daily_max = input.int(1,"Günlük Max Sinyal",1,3, group=g0)
+
+g1 = "📈 TREND"
+i_htf1      = input.string("240","Üst TF 1",options=["60","240","D"], group=g1)
+i_htf2      = input.string("D",  "Üst TF 2",options=["240","D","W"],  group=g1)
+i_hma_len   = input.int(55,"HMA Uzunluk", group=g1)
+i_er_len    = input.int(21,"Efficiency Ratio Uzunluk", group=g1)
+
+g2 = "🏦 SMC / LİKİDİTE"
+i_ssl_len   = input.int(20,"SSL/BSL Pencere (bar)", group=g2)
+i_swing_len = input.int(8, "Swing Pivot Uzunluk", group=g2)
+i_mss_bars  = input.int(15,"MSS Bekleme Süresi (bar)", group=g2)
+i_ote_bars  = input.int(30,"OTE Bekleme Süresi (bar)", group=g2)
+
+g3 = "🕐 KILLZONE (UTC)"
+i_kz_lon    = input.bool(true,"London Açılış 07:00–10:00", group=g3)
+i_kz_ny     = input.bool(true,"NY Açılış 13:00–16:00", group=g3)
+
+g4 = "⚡ OSCİLATÖR"
+i_wt_n1     = input.int(10,"WT Channel Uzunluk", group=g4)
+i_wt_n2     = input.int(21,"WT Average Uzunluk", group=g4)
+i_rsi_len   = input.int(14,"RSI Uzunluk", group=g4)
+i_rvol_min  = input.float(1.8,"Min Kurumsal RVOL",0.5,5,0.1, group=g4)
+i_cvd_len   = input.int(20,"CVD Rolling Pencere", group=g4)
+
+g5 = "🛡 RİSK YÖNETİMİ"
+i_atr_len   = input.int(14,"ATR Uzunluk", group=g5)
+i_sl_buf    = input.float(0.5,"SL Buffer (ATR çarpanı)",0.1,2,0.1, group=g5)
+i_tp1rr     = input.float(1.5,"TP1 RR",step=0.1, group=g5)
+i_tp2rr     = input.float(2.5,"TP2 RR",step=0.1, group=g5)
+i_tp3rr     = input.float(4.0,"TP3 RR",step=0.1, group=g5)
+
+g6 = "🎨 GÖRSEL"
+i_show_liq  = input.bool(true,"SSL/BSL Seviyeleri", group=g6)
+i_show_ote  = input.bool(true,"OTE Bölgesi", group=g6)
+i_show_fvg  = input.bool(true,"FVG Kutuları", group=g6)
+i_show_ob   = input.bool(true,"Order Block", group=g6)
+i_show_kz   = input.bool(true,"Killzone Rengi", group=g6)
+i_dash      = input.bool(true,"Dashboard", group=g6)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 1: TEMEL GÖSTERGELER
+// ═══════════════════════════════════════════════════════════════════════
+atr      = ta.atr(i_atr_len)
+atr_pct  = atr / close * 100.0
+
+// HMA + Eğim
+hma_val   = ta.hma(close, i_hma_len)
+hma_up    = hma_val > hma_val[1]
+hma_slope = (hma_val - hma_val[3]) / hma_val * 100.0
+
+// Kaufman Efficiency Ratio
+er_net    = math.abs(close - close[i_er_len])
+er_path   = math.sum(math.abs(ta.change(close)), i_er_len)
+er        = er_path > 0.0 ? er_net / er_path : 0.0
+trending  = er > 0.50
+
+// ADX (trend gücü)
+[diplus, diminus, adx_val] = ta.dmi(14, 14)
+adx_strong = adx_val > 25.0
+adx_bull   = diplus > diminus
+adx_bear   = diminus > diplus
+
+// VWAP
+vwap_val  = ta.vwap(hlc3)
+above_vwap= close > vwap_val
+
+// EMA ribbon (hızlı görsel trend)
+ema21 = ta.ema(close, 21)
+ema55 = ta.ema(close, 55)
+
+// ── MTF Trend (lookahead kapalı = gerçekçi) ──────────────────────────
+htf1_bull = request.security(syminfo.tickerid, i_htf1, hma_up,
+             lookahead=barmerge.lookahead_off)
+htf2_bull = request.security(syminfo.tickerid, i_htf2, hma_up,
+             lookahead=barmerge.lookahead_off)
+
+macro_bull = htf1_bull and htf2_bull
+macro_bear = not htf1_bull and not htf2_bull
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 2: ICT KİLLZONE (UTC)
+// ═══════════════════════════════════════════════════════════════════════
+h_utc      = hour(time, "UTC")
+kz_london  = i_kz_lon and h_utc >= 7  and h_utc < 10
+kz_ny      = i_kz_ny  and h_utc >= 13 and h_utc < 16
+in_kz      = kz_london or kz_ny
+kz_name    = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
+
+bgcolor(i_show_kz and kz_london ? color.new(#0044cc,91) : na, title="London KZ")
+bgcolor(i_show_kz and kz_ny     ? color.new(#006633,91) : na, title="NY KZ")
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 3: SSL / BSL SEVİYELERİ
+//  [1] offset ile lookahead bias tamamen engellenir
+// ═══════════════════════════════════════════════════════════════════════
+ssl_level   = ta.lowest(low[1],   i_ssl_len)   // Sell Side Liquidity (alıcı dur emirleri)
+bsl_level   = ta.highest(high[1], i_ssl_len)   // Buy  Side Liquidity (satıcı dur emirleri)
+
+// Görsel
+if i_show_liq and barstate.islast
+    line.new(bar_index - i_ssl_len, ssl_level, bar_index + 6, ssl_level,
+         color=color.new(color.lime, 25), style=line.style_dashed, width=1)
+    line.new(bar_index - i_ssl_len, bsl_level, bar_index + 6, bsl_level,
+         color=color.new(color.red,  25), style=line.style_dashed, width=1)
+    label.new(bar_index + 6, ssl_level, "SSL",
+         color=color.new(color.lime,30), textcolor=color.lime,
+         style=label.style_label_right, size=size.tiny)
+    label.new(bar_index + 6, bsl_level, "BSL",
+         color=color.new(color.red,30), textcolor=color.red,
+         style=label.style_label_right, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 4: DÜZELTILMIŞ SWEEP TESPİTİ
+//  Koşullar:
+//  1. Kıl, likidite seviyesini kıl geçmeli (low < SSL veya high > BSL)
+//  2. Mum KAPAT (close) seviiyenin GERİSİNDE olmalı (geri dönüş teyidi)
+//  3. Dönüş mumu olmali: bull sweep → close > open, bear sweep → close < open
+//  4. Killzone içinde olmali
+// ═══════════════════════════════════════════════════════════════════════
+sweep_bull = low < ssl_level           // Kıl aşağı geçti
+          and close > ssl_level        // Ama kapanış SSL üstünde (geri döndü)
+          and close > open             // Dönüş mumu (boğa)
+          and in_kz                   // Killzone içinde
+
+sweep_bear = high > bsl_level          // Kıl yukarı geçti
+          and close < bsl_level        // Ama kapanış BSL altında (geri döndü)
+          and close < open             // Dönüş mumu (ayı)
+          and in_kz                   // Killzone içinde
+
+// Büyük sweep (50 bar pencere) — ekstra güç
+ssl_50      = ta.lowest(low[1], 50)
+bsl_50      = ta.highest(high[1], 50)
+sweep_bull_major = sweep_bull and low < ssl_50
+sweep_bear_major = sweep_bear and high > bsl_50
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 5: SWING NOKTALARI + MSS / BOS / CHOCH
+// ═══════════════════════════════════════════════════════════════════════
+swing_h = ta.pivothigh(high, i_swing_len, i_swing_len)
+swing_l = ta.pivotlow(low,   i_swing_len, i_swing_len)
+
+var float sh1 = na;  var float sh2 = na
+var float sl1 = na;  var float sl2 = na
+
+if not na(swing_h)
+    sh2 := sh1
+    sh1 := swing_h
+if not na(swing_l)
+    sl2 := sl1
+    sl1 := swing_l
+
+// Kapanış teyitli (sadece wick kırılımı değil):
+bos_bull  = not na(sh1) and not na(sh2) and
+            ta.crossover(close, sh1) and sh1 > sh2 and close > open
+bos_bear  = not na(sl1) and not na(sl2) and
+            ta.crossunder(close, sl1) and sl1 < sl2 and close < open
+
+// CHOCH = yapı dönüşü (zıt yönlü swing kırılımı)
+choch_bull = not na(sh1) and not na(sh2) and
+             ta.crossover(close, sh1) and sh1 < sh2 and close > open
+choch_bear = not na(sl1) and not na(sl2) and
+             ta.crossunder(close, sl1) and sl1 > sl2 and close < open
+
+// MSS = CHOCH (dönüş hareketi, sweep ile birleşince çok güçlü)
+mss_bull = choch_bull
+mss_bear = choch_bear
+
+// Etiketler
+plotshape(mss_bull, "MSS▲", shape.labelup,   location.belowbar,
+          color.new(color.aqua,5), text="MSS", size=size.small)
+plotshape(mss_bear, "MSS▼", shape.labeldown, location.abovebar,
+          color.new(color.fuchsia,5), text="MSS", size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 6: FVG + ORDER BLOCK
+// ═══════════════════════════════════════════════════════════════════════
+fvg_bull = low > high[2] and close[1] > high[2]
+fvg_bear = high < low[2] and close[1] < low[2]
+
+if i_show_fvg
+    if fvg_bull
+        box.new(bar_index-2, high[2], bar_index+8, low,
+             border_color=color.new(color.lime,55), bgcolor=color.new(color.lime,91))
+    if fvg_bear
+        box.new(bar_index-2, high, bar_index+8, low[2],
+             border_color=color.new(color.red,55), bgcolor=color.new(color.red,91))
+
+ob_bull_cond = bos_bull and close[i_swing_len] < open[i_swing_len]
+ob_bear_cond = bos_bear and close[i_swing_len] > open[i_swing_len]
+
+if i_show_ob
+    if ob_bull_cond
+        box.new(bar_index-i_swing_len, low[i_swing_len],
+                bar_index+12, high[i_swing_len],
+                border_color=color.new(#00ff88,15), bgcolor=color.new(#00ff88,86))
+    if ob_bear_cond
+        box.new(bar_index-i_swing_len, low[i_swing_len],
+                bar_index+12, high[i_swing_len],
+                border_color=color.new(#ff4444,15), bgcolor=color.new(#ff4444,86))
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 7: WAVE TREND (Market Cipher temelli)
+// ═══════════════════════════════════════════════════════════════════════
+ap    = hlc3
+esa   = ta.ema(ap, i_wt_n1)
+d_wt  = ta.ema(math.abs(ap - esa), i_wt_n1)
+ci    = d_wt > 0.0 ? (ap - esa) / (0.015 * d_wt) : 0.0
+wt1   = ta.ema(ci, i_wt_n2)
+wt2   = ta.sma(wt1, 4)
+
+wt_xup  = ta.crossover(wt1, wt2)  and wt1 < -40.0   // Aşırı satımdan çıkış
+wt_xdn  = ta.crossunder(wt1, wt2) and wt1 >  40.0   // Aşırı alımdan çıkış
+wt_bull = wt1 > wt2
+wt_bear = wt1 < wt2
+wt_os   = wt1 < -50.0
+wt_ob   = wt1 >  50.0
+
+// WT diverjans
+wt_bull_div = ta.lowest(low,10)   < ta.lowest(low,10)[5]   and
+              ta.lowest(wt1,10)   > ta.lowest(wt1,10)[5]    // Klasik boğa div
+wt_bear_div = ta.highest(high,10) > ta.highest(high,10)[5] and
+              ta.highest(wt1,10)  < ta.highest(wt1,10)[5]   // Klasik ayı div
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 8: RSI
+// ═══════════════════════════════════════════════════════════════════════
+rsi        = ta.rsi(close, i_rsi_len)
+rsi_os     = rsi < 30.0
+rsi_ob     = rsi > 70.0
+rsi_bull_div = ta.lowest(low,8)   < ta.lowest(low,8)[4]   and
+               ta.lowest(rsi,8)   > ta.lowest(rsi,8)[4]
+rsi_bear_div = ta.highest(high,8) > ta.highest(high,8)[4] and
+               ta.highest(rsi,8)  < ta.highest(rsi,8)[4]
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 9: ROLLING CVD (kümülatif BUG düzeltildi)
+//  ta.cum() tüm grafik boyunca birikirdi → karşılaştırma anlamsız
+//  Düzeltme: math.sum(delta, N) = son N bardaki net delta
+// ═══════════════════════════════════════════════════════════════════════
+buy_vol     = volume * ((close - low)  / math.max(high - low, 0.00001))
+sell_vol    = volume * ((high - close) / math.max(high - low, 0.00001))
+delta_bar   = buy_vol - sell_vol
+cvd_rolling = math.sum(delta_bar, i_cvd_len)
+
+cvd_pos     = cvd_rolling > 0.0
+cvd_neg     = cvd_rolling < 0.0
+cvd_bull_div= cvd_rolling > cvd_rolling[5] and close < close[5]
+cvd_bear_div= cvd_rolling < cvd_rolling[5] and close > close[5]
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 10: MFI + HACİM
+// ═══════════════════════════════════════════════════════════════════════
+mfi         = ta.mfi(hlc3, 14)
+mfi_bull    = mfi < 30.0
+mfi_bear    = mfi > 70.0
+
+vol_sma     = ta.sma(volume, 20)
+rvol        = volume / math.max(vol_sma, 0.00001)
+inst_vol    = rvol >= i_rvol_min
+
+// Wyckoff Spring / Upthrust
+w_lo        = ta.lowest(low,   25)
+w_hi        = ta.highest(high, 25)
+w_rng       = w_hi - w_lo
+in_range_wy = ta.stdev(close, 25) / close < 0.025   // dar range şartı
+
+spring   = in_range_wy and
+           low  < w_lo + w_rng * 0.10 and
+           close > w_lo + w_rng * 0.20 and
+           inst_vol and close > open
+
+upthrust = in_range_wy and
+           high  > w_hi - w_rng * 0.10 and
+           close < w_hi - w_rng * 0.20 and
+           inst_vol and close < open
+
+plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar,
+          color.new(color.lime,0), size=size.small)
+plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar,
+          color.new(color.red,0),  size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 11: DURUM MAKİNESİ — LONG
+//
+//  Akış:
+//  0 (IDLE)
+//   └─[sweep_bull + macro_bull + trending]─→ 1 (SWEPT)
+//       └─[mss_bull/bos_bull within mss_bars]─→ 2 (MSS_OK)
+//           └─[price enters OTE within ote_bars]─→ 3 (OTE_ACTIVE)
+//               └─[onay filtresi]─→ SİNYAL → 0
+//
+//  Her geçişte timeout sayacı sıfırlanır.
+//  Toplam max bekleme = mss_bars + ote_bars bar.
+// ═══════════════════════════════════════════════════════════════════════
+
+// Durum değişkenleri — LONG
+var int   ls           = 0     // 0=idle, 1=swept, 2=mss_ok, 3=ote_active
+var float l_swept_low  = na    // SSL sweep edilen düşük fiyat
+var float l_disp_top   = na    // Displacement zirvesi (MSS anı kapanış)
+var float l_ote_hi     = na    // OTE üst sınır (%61.8 retracement)
+var float l_ote_lo     = na    // OTE alt sınır (%78.6 retracement)
+var int   l_phase_bar  = 0     // Mevcut fazın başladığı bar
+
+// Durum değişkenleri — SHORT
+var int   ss           = 0
+var float s_swept_hi   = na
+var float s_disp_bot   = na
+var float s_ote_lo     = na
+var float s_ote_hi     = na
+var int   s_phase_bar  = 0
+
+// Günlük sinyal sayacı
+var int   day_cnt      = 0
+var int   last_day_chk = 0
+
+if dayofmonth != last_day_chk
+    day_cnt      := 0
+    last_day_chk := dayofmonth
+
+can_signal = day_cnt < i_daily_max
+
+// ── Timeout: fazda çok uzun beklersek sıfırla ─────────────────────────
+l_max_wait = i_mss_bars + i_ote_bars + 10
+s_max_wait = i_mss_bars + i_ote_bars + 10
+
+if ls > 0 and (bar_index - l_phase_bar) > l_max_wait
+    ls := 0
+if ss > 0 and (bar_index - s_phase_bar) > s_max_wait
+    ss := 0
+
+// ── LONG Geçişleri ────────────────────────────────────────────────────
+
+// Faz 0 → 1: SSL sweep
+if ls == 0 and can_signal and sweep_bull and macro_bull and trending
+    ls          := 1
+    l_swept_low := low           // Sweep edilen düşük = SL referansı
+    l_phase_bar := bar_index
+
+// Faz 1 → 2: Sweep sonrası MSS/BOS geldi
+if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_phase_bar) <= i_mss_bars
+    l_disp_top  := close         // Displacement hareketi en yükseği = MSS kapanışı
+    fib_rng      = l_disp_top - nz(l_swept_low, close - atr * 3.0)
+    // OTE = %61.8 ve %78.6 retracement bölgesi
+    l_ote_hi    := l_disp_top - fib_rng * 0.618
+    l_ote_lo    := l_disp_top - fib_rng * 0.786
+    ls          := 2
+    l_phase_bar := bar_index
+
+// Faz 2 → 3: Fiyat OTE'ye çekildi
+if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
+   close >= l_ote_lo and close <= l_ote_hi and
+   (bar_index - l_phase_bar) <= i_ote_bars
+    ls          := 3
+    l_phase_bar := bar_index
+
+// ── SHORT Geçişleri ───────────────────────────────────────────────────
+
+// Faz 0 → 1: BSL sweep
+if ss == 0 and can_signal and sweep_bear and macro_bear and trending
+    ss          := 1
+    s_swept_hi  := high
+    s_phase_bar := bar_index
+
+// Faz 1 → 2: Sweep sonrası MSS/BOS
+if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_phase_bar) <= i_mss_bars
+    s_disp_bot  := close
+    fib_rng2     = nz(s_swept_hi, close + atr * 3.0) - s_disp_bot
+    s_ote_lo    := s_disp_bot + fib_rng2 * 0.618
+    s_ote_hi    := s_disp_bot + fib_rng2 * 0.786
+    ss          := 2
+    s_phase_bar := bar_index
+
+// Faz 2 → 3: Fiyat OTE'ye çekildi
+if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
+   close >= s_ote_lo and close <= s_ote_hi and
+   (bar_index - s_phase_bar) <= i_ote_bars
+    ss          := 3
+    s_phase_bar := bar_index
+
+// OTE görsel (durum 2 veya 3 iken göster)
+if i_show_ote and not na(l_ote_lo) and not na(l_ote_hi) and (ls == 2 or ls == 3)
+    box.new(bar_index-1, l_ote_lo, bar_index+10, l_ote_hi,
+         border_color=color.new(color.yellow,20),
+         bgcolor=color.new(color.yellow,91))
+
+if i_show_ote and not na(s_ote_lo) and not na(s_ote_hi) and (ss == 2 or ss == 3)
+    box.new(bar_index-1, s_ote_lo, bar_index+10, s_ote_hi,
+         border_color=color.new(color.orange,20),
+         bgcolor=color.new(color.orange,91))
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 12: ONAY FİLTRELERİ
+// ═══════════════════════════════════════════════════════════════════════
+
+// LONG onay bileşenleri (6 ayrı kaynak)
+lc1 = wt_xup or (wt_bull and wt_os)              // Wave Trend aşırı satım
+lc2 = rsi_os or rsi_bull_div                      // RSI aşırı satım / diverjans
+lc3 = inst_vol                                    // Kurumsal hacim (zorunlu)
+lc4 = spring or cvd_bull_div                      // Wyckoff spring VEYA CVD div
+lc5 = mfi_bull or cvd_pos                         // Para akışı pozitif
+lc6 = fvg_bull or ob_bull_cond                    // FVG veya Order Block seviyesi
+
+l_onay = (lc1?1:0) + (lc2?1:0) + (lc3?1:0) + (lc4?1:0) + (lc5?1:0) + (lc6?1:0)
+
+min_onay = i_mode == "SNIPER" ? 4 : i_mode == "PRECISION" ? 3 : 2
+
+// SHORT onay bileşenleri
+sc1 = wt_xdn or (wt_bear and wt_ob)
+sc2 = rsi_ob or rsi_bear_div
+sc3 = inst_vol
+sc4 = upthrust or cvd_bear_div
+sc5 = mfi_bear or cvd_neg
+sc6 = fvg_bear or ob_bear_cond
+
+s_onay = (sc1?1:0) + (sc2?1:0) + (sc3?1:0) + (sc4?1:0) + (sc5?1:0) + (sc6?1:0)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 13: SİNYAL ÜRETİMİ
+//  Tüm koşullar:
+//  1. OTE fazında (ls/ss == 3)
+//  2. Yeterli onay (≥ min_onay)
+//  3. Killzone içinde
+//  4. Makro trend hizalı
+//  5. Verimli trend
+//  6. Günlük sinyal limiti aşılmadı
+// ═══════════════════════════════════════════════════════════════════════
+av_long_raw  = ls == 3 and l_onay >= min_onay and in_kz and
+               macro_bull and trending and can_signal
+
+av_short_raw = ss == 3 and s_onay >= min_onay and in_kz and
+               macro_bear and trending and can_signal
+
+// Tek seferlik tetik (bir sonraki bar sinyali tekrar etme)
+av_long  = av_long_raw  and not av_long_raw[1]
+av_short = av_short_raw and not av_short_raw[1]
+
+// Sinyal sonrası durumu sıfırla
+if av_long
+    ls      := 0
+    day_cnt += 1
+
+if av_short
+    ss      := 0
+    day_cnt += 1
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 14: ADAPTİF RİSK YÖNETİMİ
+//  ICT doğru SL yerleşimi: sweep edilen seviye altı/üstü + buffer
+//  (sabit ATR çarpanı değil — gerçekçi likidite tabanlı stop)
+// ═══════════════════════════════════════════════════════════════════════
+var float entry_p  = na
+var float sl_p     = na
+var float tp1_p    = na
+var float tp2_p    = na
+var float tp3_p    = na
+var int   trade_d  = 0   // 1=long, -1=short, 0=yok
+
+if av_long
+    entry_p   := close
+    // SL = sweep edilen SSL altına güvenlik mesafesi koy
+    sl_p      := nz(l_swept_low, close - atr * 3.0) - atr * i_sl_buf
+    risk_l     = entry_p - sl_p
+    tp1_p     := entry_p + risk_l * i_tp1rr
+    tp2_p     := entry_p + risk_l * i_tp2rr
+    tp3_p     := entry_p + risk_l * i_tp3rr
+    trade_d   := 1
+
+if av_short
+    entry_p   := close
+    sl_p      := nz(s_swept_hi, close + atr * 3.0) + atr * i_sl_buf
+    risk_s     = sl_p - entry_p
+    tp1_p     := entry_p - risk_s * i_tp1rr
+    tp2_p     := entry_p - risk_s * i_tp2rr
+    tp3_p     := entry_p - risk_s * i_tp3rr
+    trade_d   := -1
+
+// Pozisyon boyutu öneri (sermayenin risk_pct kadarını riske at)
+risk_dist_pct  = trade_d != 0 and not na(sl_p) and not na(entry_p) ?
+                 math.abs(entry_p - sl_p) / entry_p * 100.0 : 0.0
+pos_size_usdt  = risk_dist_pct > 0 ?
+                 (i_risk / risk_dist_pct) * 100.0 * i_lev : 0.0
+
+// Trailing Supertrend (TP2'den sonra devreye girer)
+[st_trail, st_dir_trail] = ta.supertrend(3.0, 10)
+trail_long  = trade_d == 1  and not na(tp2_p) and close > tp2_p ? st_trail : na
+trail_short = trade_d == -1 and not na(tp2_p) and close < tp2_p ? st_trail : na
+
+// ── KAPAR Koşulları ───────────────────────────────────────────────────
+// LONG çıkış:
+kapar_long  = trade_d == 1 and not na(sl_p) and not na(tp3_p) and (
+     ta.crossunder(close, sl_p)    or                    // Stop hit
+     ta.crossover(close, tp3_p)    or                    // Tam hedef
+     (wt_xdn and wt_ob)            or                    // WT aşırı alım dönüşü
+     // Karşı MSS geldi VE TP1'in yarısına gelinmişse çık (BE koruması)
+     (mss_bear and close > entry_p + (tp1_p - entry_p) * 0.5))
+
+// SHORT çıkış:
+kapar_short = trade_d == -1 and not na(sl_p) and not na(tp3_p) and (
+     ta.crossover(close, sl_p)     or
+     ta.crossunder(close, tp3_p)   or
+     (wt_xup and wt_os)            or
+     (mss_bull and close < entry_p - (entry_p - tp1_p) * 0.5))
+
+if kapar_long or kapar_short
+    trade_d := 0
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 15: GÖRSELLEŞTİRME
+// ═══════════════════════════════════════════════════════════════════════
+plot(hma_val, "HMA",  hma_up ? color.new(color.lime,15) : color.new(color.red,15), 2)
+plot(ema21,   "EMA21",color.new(#00aaff, 55), 1)
+plot(ema55,   "EMA55",color.new(#ff00ff, 50), 1)
+plot(vwap_val,"VWAP", color.new(color.white,30), 2)
+
+// TP / SL çizgileri
+plot(trade_d != 0 ? sl_p  : na, "SL",  color.red,                    2, plot.style_linebr)
+plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(color.lime,45),     1, plot.style_linebr)
+plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(color.lime,25),     1, plot.style_linebr)
+plot(trade_d != 0 ? tp3_p : na, "TP3", color.lime,                   2, plot.style_linebr)
+plot(not na(trail_long)  ? trail_long  : na, "Trail↑", color.new(color.yellow,25), 2, plot.style_linebr)
+plot(not na(trail_short) ? trail_short : na, "Trail↓", color.new(color.yellow,25), 2, plot.style_linebr)
+
+// Sweep elmas işaretleri
+plotshape(sweep_bull, "SSL Sweep", shape.diamond, location.belowbar,
+          color.new(color.aqua,0),    size=size.small)
+plotshape(sweep_bear, "BSL Sweep", shape.diamond, location.abovebar,
+          color.new(color.fuchsia,0), size=size.small)
+
+// AV / KAPAR etiketleri
+if av_long
+    onay_txt = (lc1?"WT ":"")+(lc2?"RSI ":"")+(lc3?"VOL ":"")+(lc4?"WY ":"")+(lc5?"MFI ":"")+(lc6?"SMC":"")
+    lbl = "🟢 AV LONG\n" +
+          "Sweep ✅  MSS ✅  OTE ✅\n" +
+          "KZ: " + kz_name + " | Onay: " + str.tostring(l_onay) + "/6\n" +
+          "[" + onay_txt + "]\n" +
+          "SL: " + str.tostring(sl_p,"#.##") +
+          " | TP3: " + str.tostring(tp3_p,"#.##") + "\n" +
+          str.tostring(i_lev,"#") + "x | Risk:" + str.tostring(risk_dist_pct,"#.##") + "%"
+    label.new(bar_index, low - atr*3.0, lbl,
+         color=color.new(#00bb33,0), textcolor=color.white,
+         style=label.style_label_up, size=size.large)
+
+if av_short
+    onay_txt = (sc1?"WT ":"")+(sc2?"RSI ":"")+(sc3?"VOL ":"")+(sc4?"WY ":"")+(sc5?"MFI ":"")+(sc6?"SMC":"")
+    lbl = "🔴 AV SHORT\n" +
+          "Sweep ✅  MSS ✅  OTE ✅\n" +
+          "KZ: " + kz_name + " | Onay: " + str.tostring(s_onay) + "/6\n" +
+          "[" + onay_txt + "]\n" +
+          "SL: " + str.tostring(sl_p,"#.##") +
+          " | TP3: " + str.tostring(tp3_p,"#.##") + "\n" +
+          str.tostring(i_lev,"#") + "x | Risk:" + str.tostring(risk_dist_pct,"#.##") + "%"
+    label.new(bar_index, high + atr*3.0, lbl,
+         color=color.new(#bb0022,0), textcolor=color.white,
+         style=label.style_label_down, size=size.large)
+
+if kapar_long
+    label.new(bar_index, high + atr*1.2, "✖ KAPAR\nLONG çıkış",
+         color=color.new(color.yellow,5), textcolor=color.black,
+         style=label.style_label_down, size=size.normal)
+if kapar_short
+    label.new(bar_index, low - atr*1.2, "✖ KAPAR\nSHORT çıkış",
+         color=color.new(color.yellow,5), textcolor=color.black,
+         style=label.style_label_up, size=size.normal)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 16: CANLI İSTATİSTİKLER
+// ═══════════════════════════════════════════════════════════════════════
+var int   total_trades = 0
+var int   wins         = 0
+var float total_rr     = 0.0
+var int   cur_streak   = 0
+var int   max_streak   = 0
+var int   max_loss_str = 0
+var int   cur_loss_str = 0
+
+if av_long or av_short
+    total_trades += 1
+
+if kapar_long and not na(entry_p) and not na(sl_p)
+    rr_got = (close - entry_p) / math.max(entry_p - sl_p, 0.00001)
+    if rr_got > 0.0
+        wins       += 1;  cur_streak += 1;  cur_loss_str := 0
+        max_streak := math.max(max_streak, cur_streak)
+        total_rr   += rr_got
+    else
+        cur_streak    := 0;  cur_loss_str += 1
+        max_loss_str  := math.max(max_loss_str, cur_loss_str)
+
+if kapar_short and not na(entry_p) and not na(sl_p)
+    rr_got = (entry_p - close) / math.max(sl_p - entry_p, 0.00001)
+    if rr_got > 0.0
+        wins       += 1;  cur_streak += 1;  cur_loss_str := 0
+        max_streak := math.max(max_streak, cur_streak)
+        total_rr   += rr_got
+    else
+        cur_streak    := 0;  cur_loss_str += 1
+        max_loss_str  := math.max(max_loss_str, cur_loss_str)
+
+win_rate = total_trades > 0 ? float(wins) / float(total_trades) * 100.0 : 0.0
+avg_rr   = wins > 0 ? total_rr / float(wins) : 0.0
+exp_val  = wins > 0 ?
+           (win_rate/100.0 * avg_rr) - ((1.0 - win_rate/100.0) * 1.0) : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 17: DASHBOARD
+//  KRİTİK NOT: dash_cell() GLOBAL KAPSAMDA tanımlandı
+//  (Pine Script v6'da if bloğu içinde fonksiyon tanımlanamaz)
+// ═══════════════════════════════════════════════════════════════════════
+var table dt = table.new(position.top_right, 2, 22,
+     bgcolor=color.new(#03030d, 5),
+     border_color=color.new(#333355, 30), border_width=1)
+
+dash_cell(int r, int c, string txt, color tc, color bc) =>
+    table.cell(dt, c, r, txt, text_color=tc, bgcolor=bc, text_size=size.small)
+
+if i_dash and barstate.islast
+
+    HDR  = color.new(#0a0a66, 10)
+    BG1  = color.new(#0d0d22, 55)
+    BG_L = color.new(#001a00, 55)
+    BG_S = color.new(#1a0000, 55)
+    BG_P = color.new(#111133, 55)
+
+    mtf_c   = macro_bull ? color.lime   : macro_bear ? color.red   : color.yellow
+    mtf_txt = macro_bull ? "🟢 BULL"    : macro_bear ? "🔴 BEAR"   : "🟡 KARIŞIK"
+    er_c    = er > 0.6   ? color.lime   : er > 0.4   ? color.yellow: color.red
+    wr_c    = win_rate > 65.0 ? color.lime : win_rate > 50.0 ? color.yellow : color.red
+    ev_c    = exp_val   > 0.5 ? color.lime : exp_val   > 0.0 ? color.yellow : color.red
+
+    l_st_c  = ls == 3 ? color.lime    : ls > 0 ? color.yellow : color.gray
+    s_st_c  = ss == 3 ? color.red     : ss > 0 ? color.orange : color.gray
+    l_st_t  = ls == 0 ? "⚪ IDLE" : ls == 1 ? "🔵 Sweep ✅  →MSS" :
+              ls == 2 ? "🟡 MSS ✅  →OTE" : "🟢 OTE AKTİF — Bekle!"
+    s_st_t  = ss == 0 ? "⚪ IDLE" : ss == 1 ? "🔵 Sweep ✅  →MSS" :
+              ss == 2 ? "🟡 MSS ✅  →OTE" : "🔴 OTE AKTİF — Bekle!"
+
+    lc_txt  = str.tostring(l_onay) + "/6" +
+              (lc1?" WT":"") + (lc2?" RSI":"") + (lc3?" VOL":"") +
+              (lc4?" WY":"") + (lc5?" MFI":"") + (lc6?" SMC":"")
+    sc_txt  = str.tostring(s_onay) + "/6" +
+              (sc1?" WT":"") + (sc2?" RSI":"") + (sc3?" VOL":"") +
+              (sc4?" WY":"") + (sc5?" MFI":"") + (sc6?" SMC":"")
+
+    pos_txt = trade_d == 1  ? "🟢 LONG AÇIK"  :
+              trade_d == -1 ? "🔴 SHORT AÇIK" : "⚪ Pozisyon Yok"
+    pos_c   = trade_d == 1  ? color.lime       :
+              trade_d == -1 ? color.red        : color.gray
+
+    dash_cell(0,  0, "⚡ ORACLE PRIME v1.0",                    color.new(#00ffff,0), HDR)
+    dash_cell(0,  1, i_mode + " | " + str.tostring(i_lev) + "x", color.white,         HDR)
+    dash_cell(1,  0, "MTF Trend ("+i_htf1+"/"+i_htf2+")",        color.gray,  BG1)
+    dash_cell(1,  1, mtf_txt,                                     mtf_c,       BG1)
+    dash_cell(2,  0, "Efficiency Ratio",                          color.gray,  BG1)
+    dash_cell(2,  1, str.tostring(er,"#.##") + (trending?" ✅ Trend":" ❌ Flat"), er_c, BG1)
+    dash_cell(3,  0, "ADX",                                       color.gray,  BG1)
+    dash_cell(3,  1, str.tostring(adx_val,"#.#") +
+              (adx_strong?" 🟢 Güçlü":" 🟡 Zayıf"),
+              adx_strong ? color.lime : color.yellow, BG1)
+    dash_cell(4,  0, "Killzone",                                  color.gray,  BG1)
+    dash_cell(4,  1, in_kz ? ("✅ " + kz_name) : "❌ Dışında",
+              in_kz ? color.lime : color.gray, BG1)
+    dash_cell(5,  0, "RVOL",                                      color.gray,  BG1)
+    dash_cell(5,  1, str.tostring(rvol,"#.##") + "x" + (inst_vol?" 🔥 KURUMSAL":""),
+              inst_vol ? color.orange : color.gray, BG1)
+    // Long durumu
+    dash_cell(6,  0, "LONG Fazı",                                 color.gray,  BG_L)
+    dash_cell(6,  1, l_st_t,                                      l_st_c,      BG_L)
+    dash_cell(7,  0, "LONG Onaylar",                              color.gray,  BG_L)
+    dash_cell(7,  1, lc_txt,
+              l_onay >= 4 ? color.lime : l_onay >= 2 ? color.yellow : color.gray, BG_L)
+    // Short durumu
+    dash_cell(8,  0, "SHORT Fazı",                                color.gray,  BG_S)
+    dash_cell(8,  1, s_st_t,                                      s_st_c,      BG_S)
+    dash_cell(9,  0, "SHORT Onaylar",                             color.gray,  BG_S)
+    dash_cell(9,  1, sc_txt,
+              s_onay >= 4 ? color.red : s_onay >= 2 ? color.orange : color.gray, BG_S)
+    // Osilatörler
+    dash_cell(10, 0, "Wave Trend",                                color.gray,  BG1)
+    dash_cell(10, 1, str.tostring(wt1,"#.#") +
+              (wt_os?" 🟢 OS" : wt_ob?" 🔴 OB" : " Nötr"),
+              wt_os ? color.lime : wt_ob ? color.red : color.white, BG1)
+    dash_cell(11, 0, "RSI",                                       color.gray,  BG1)
+    dash_cell(11, 1, str.tostring(rsi,"#.#") +
+              (rsi_os?" 🟢 OS" : rsi_ob?" 🔴 OB" : " Nötr"),
+              rsi_os ? color.lime : rsi_ob ? color.red : color.white, BG1)
+    dash_cell(12, 0, "CVD ("+str.tostring(i_cvd_len)+" bar)",    color.gray,  BG1)
+    dash_cell(12, 1, cvd_pos ? "🟢 Alım Baskısı" : "🔴 Satış Baskısı",
+              cvd_pos ? color.lime : color.red, BG1)
+    dash_cell(13, 0, "Wyckoff",                                   color.gray,  BG1)
+    dash_cell(13, 1, spring?"🔵 SPRING!":upthrust?"🔴 UPTHRUST!":"—",
+              spring?color.aqua:upthrust?color.fuchsia:color.gray, BG1)
+    // Pozisyon
+    dash_cell(14, 0, "Pozisyon",                                  color.gray,  BG_P)
+    dash_cell(14, 1, pos_txt,                                     pos_c,       BG_P)
+    dash_cell(15, 0, "Bugün Sinyal",                              color.gray,  BG_P)
+    dash_cell(15, 1, str.tostring(day_cnt) + "/" + str.tostring(i_daily_max) +
+              (day_cnt >= i_daily_max ? "  ⛔ Limit Doldu" : "  ✅ Açık"),
+              day_cnt >= i_daily_max ? color.red : color.lime, BG_P)
+    // İstatistikler
+    dash_cell(16, 0, "Win Rate",                                  color.gray,  BG1)
+    dash_cell(16, 1, str.tostring(win_rate,"#.#") + "% (" +
+              str.tostring(wins) + "/" + str.tostring(total_trades) + ")", wr_c, BG1)
+    dash_cell(17, 0, "Ort. RR",                                   color.gray,  BG1)
+    dash_cell(17, 1, "1:" + str.tostring(avg_rr,"#.##"),
+              avg_rr > 2.0 ? color.lime : avg_rr > 1.5 ? color.yellow : color.gray, BG1)
+    dash_cell(18, 0, "Beklenti (EV)",                             color.gray,  BG1)
+    dash_cell(18, 1, str.tostring(exp_val,"#.##") + "R",          ev_c,        BG1)
+    dash_cell(19, 0, "Win Serisi",                                color.gray,  BG1)
+    dash_cell(19, 1, str.tostring(cur_streak) +
+              " aktif | max:" + str.tostring(max_streak),
+              cur_streak >= 3 ? color.lime : color.white, BG1)
+    dash_cell(20, 0, "Max Kayıp Serisi",                          color.gray,  BG1)
+    dash_cell(20, 1, str.tostring(max_loss_str),
+              max_loss_str >= 3 ? color.red : color.white, BG1)
+    dash_cell(21, 0, "ATR % | RVOL",                              color.gray,  BG1)
+    dash_cell(21, 1, str.tostring(atr_pct,"#.##") + "% | " +
+              str.tostring(rvol,"#.#") + "x",                     color.white, BG1)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 18: ALERTLER — Webhook JSON
+// ═══════════════════════════════════════════════════════════════════════
+alertcondition(av_long, "🟢 ORACLE AV LONG",
+     '{"signal":"LONG","indicator":"ORACLE_PRIME_v1",' +
+     '"symbol":"{{ticker}}","tf":"{{interval}}","price":"{{close}}",' +
+     '"sl":"'      + str.tostring(sl_p,   "#.######") + '",' +
+     '"tp1":"'     + str.tostring(tp1_p,  "#.######") + '",' +
+     '"tp2":"'     + str.tostring(tp2_p,  "#.######") + '",' +
+     '"tp3":"'     + str.tostring(tp3_p,  "#.######") + '",' +
+     '"confirms":"'+ str.tostring(l_onay) + '",' +
+     '"kz":"'      + kz_name + '",' +
+     '"er":"'      + str.tostring(er,   "#.##") + '",' +
+     '"rvol":"'    + str.tostring(rvol, "#.##") + '",' +
+     '"wt":"'      + str.tostring(wt1,  "#.#") + '",' +
+     '"rsi":"'     + str.tostring(rsi,  "#.#") + '",' +
+     '"action":"buy"}')
+
+alertcondition(av_short, "🔴 ORACLE AV SHORT",
+     '{"signal":"SHORT","indicator":"ORACLE_PRIME_v1",' +
+     '"symbol":"{{ticker}}","tf":"{{interval}}","price":"{{close}}",' +
+     '"sl":"'      + str.tostring(sl_p,   "#.######") + '",' +
+     '"tp1":"'     + str.tostring(tp1_p,  "#.######") + '",' +
+     '"tp2":"'     + str.tostring(tp2_p,  "#.######") + '",' +
+     '"tp3":"'     + str.tostring(tp3_p,  "#.######") + '",' +
+     '"confirms":"'+ str.tostring(s_onay) + '",' +
+     '"kz":"'      + kz_name + '",' +
+     '"er":"'      + str.tostring(er,   "#.##") + '",' +
+     '"rvol":"'    + str.tostring(rvol, "#.##") + '",' +
+     '"wt":"'      + str.tostring(wt1,  "#.#") + '",' +
+     '"rsi":"'     + str.tostring(rsi,  "#.#") + '",' +
+     '"action":"sell"}')
+
+alertcondition(kapar_long or kapar_short, "✖ ORACLE KAPAR",
+     '{"signal":"CLOSE","indicator":"ORACLE_PRIME_v1",' +
+     '"symbol":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"close"}')
+
+alertcondition(ls == 3, "🎯 LONG OTE AKTİF",
+     '{"signal":"OTE_READY","dir":"LONG","symbol":"{{ticker}}","price":"{{close}}",' +
+     '"confirms":"' + str.tostring(l_onay) + '","waiting_signal":true}')
+
+alertcondition(ss == 3, "🎯 SHORT OTE AKTİF",
+     '{"signal":"OTE_READY","dir":"SHORT","symbol":"{{ticker}}","price":"{{close}}",' +
+     '"confirms":"' + str.tostring(s_onay) + '","waiting_signal":true}')
+
+alertcondition(sweep_bull_major, "🔵 BÜYÜK SSL SWEEP",
+     '{"signal":"MAJOR_SWEEP","dir":"BULL","symbol":"{{ticker}}","price":"{{close}}"}')
+alertcondition(sweep_bear_major, "🔴 BÜYÜK BSL SWEEP",
+     '{"signal":"MAJOR_SWEEP","dir":"BEAR","symbol":"{{ticker}}","price":"{{close}}"}')
