@@ -127,19 +127,21 @@ pdl = request.security(syminfo.tickerid, "D", low[i_pdh_len],  lookahead=barmerg
 pdh_sweep = not na(pdh) and high > pdh and close < pdh and close < open
 pdl_sweep = not na(pdl) and low  < pdl and close > pdl and close > open
 
+var line  pdh_ln = na
+var label pdh_lb = na
+var line  pdl_ln = na
+var label pdl_lb = na
 if i_show_pdh and barstate.islast
+    line.delete(pdh_ln)
+    label.delete(pdh_lb)
+    line.delete(pdl_ln)
+    label.delete(pdl_lb)
     if not na(pdh)
-        line.new(bar_index - 50, pdh, bar_index + 10, pdh,
-             color=color.new(C_BEAR, 20), style=line.style_solid, width=2)
-        label.new(bar_index + 10, pdh, " PDH",
-             textcolor=color.new(C_BEAR, 10), color=color.new(color.black, 100),
-             style=label.style_label_right, size=size.small)
+        pdh_ln := line.new(bar_index - 50, pdh, bar_index, pdh, color=color.new(C_BEAR, 20), style=line.style_solid, width=2, extend=extend.right)
+        pdh_lb := label.new(bar_index, pdh, " PDH ", textcolor=color.new(C_BEAR, 10), color=color.new(color.black, 100), style=label.style_label_left, size=size.small)
     if not na(pdl)
-        line.new(bar_index - 50, pdl, bar_index + 10, pdl,
-             color=color.new(C_BULL, 20), style=line.style_solid, width=2)
-        label.new(bar_index + 10, pdl, " PDL",
-             textcolor=color.new(C_BULL, 10), color=color.new(color.black, 100),
-             style=label.style_label_right, size=size.small)
+        pdl_ln := line.new(bar_index - 50, pdl, bar_index, pdl, color=color.new(C_BULL, 20), style=line.style_solid, width=2, extend=extend.right)
+        pdl_lb := label.new(bar_index, pdl, " PDL ", textcolor=color.new(C_BULL, 10), color=color.new(color.black, 100), style=label.style_label_left, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 3: KİLLZONE + HABER FİLTRESİ
@@ -180,15 +182,19 @@ sweep_bear_strong = sweep_bear_pdh or sweep_bear_50
 sweep_bull_any = sweep_bull or sweep_bull_strong
 sweep_bear_any = sweep_bear or sweep_bear_strong
 
+var line ssl20_ln = na
+var line bsl20_ln = na
+var line ssl50_ln = na
+var line bsl50_ln = na
 if i_show_liq and barstate.islast
-    line.new(bar_index - i_ssl_len, ssl_20, bar_index + 8, ssl_20,
-         color=color.new(C_BULL, 30), style=line.style_dashed, width=1)
-    line.new(bar_index - i_ssl_len, bsl_20, bar_index + 8, bsl_20,
-         color=color.new(C_BEAR, 30), style=line.style_dashed, width=1)
-    line.new(bar_index - 50, ssl_50, bar_index + 8, ssl_50,
-         color=color.new(C_BULL, 55), style=line.style_dotted, width=2)
-    line.new(bar_index - 50, bsl_50, bar_index + 8, bsl_50,
-         color=color.new(C_BEAR, 55), style=line.style_dotted, width=2)
+    line.delete(ssl20_ln)
+    line.delete(bsl20_ln)
+    line.delete(ssl50_ln)
+    line.delete(bsl50_ln)
+    ssl20_ln := line.new(bar_index - i_ssl_len, ssl_20, bar_index, ssl_20, color=color.new(C_BULL, 30), style=line.style_dashed, width=1, extend=extend.right)
+    bsl20_ln := line.new(bar_index - i_ssl_len, bsl_20, bar_index, bsl_20, color=color.new(C_BEAR, 30), style=line.style_dashed, width=1, extend=extend.right)
+    ssl50_ln := line.new(bar_index - 50, ssl_50, bar_index, ssl_50, color=color.new(C_BULL, 55), style=line.style_dotted, width=2, extend=extend.right)
+    bsl50_ln := line.new(bar_index - 50, bsl_50, bar_index, bsl_50, color=color.new(C_BEAR, 55), style=line.style_dotted, width=2, extend=extend.right)
 
 plotshape(sweep_bull_strong, "PDL/50 Sweep↑", shape.diamond, location.belowbar,
           color=color.new(C_APEX, 0), size=size.small)
