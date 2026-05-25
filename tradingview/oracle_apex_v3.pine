@@ -4,36 +4,16 @@ indicator("ORACLE APEX  v3.0", overlay=true,
      max_boxes_count=300, max_bars_back=5000)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  ORACLE APEX v3.0 — Dünya'nın En İyi Precision Indicator
-//
+//  ORACLE APEX v3.0 — Ultra Precision ICT/SMC Indicator
 //  Hedef Win Rate: %88–93
-//  Sinyal Sıklığı: Günde 1 / 2-3 günde 1
 //  Yöntem: ICT + Wyckoff + SMC + Break-Even Yönetimi
-//
-//  %90+ Win Rate için 5 Temel Prensip:
-//  ① PDH/PDL sweep → en yüksek olasılıklı ICT setup
-//  ② 3 MTF hizalama (Weekly + Daily + aktif TF)
-//  ③ HTF FVG alanında OTE girişi
-//  ④ Break-Even yönetimi (TP1 → SL BE'ye çek)
-//  ⑤ 6/6 onay = "APEX" sinyal → bu işleme gir
-//
-//  Düzeltmeler (v2 → v3):
-//  ✅ PDH / PDL sweep tespiti eklendi
-//  ✅ Weekly trend zorunlu 3. MTF
-//  ✅ HTF (4H) FVG çakışma filtresi
-//  ✅ Break-Even alert sistemi
-//  ✅ "APEX GRADE" sinyal (6/6 onay)
-//  ✅ Sinyalsiz saat filtresi (yüksek etki haberi öncesi)
-//  ✅ RVOL eşiği yükseltildi (2.0 → 2.5 APEX için)
-//  ✅ Pozisyon yönetimi: %50 TP1 / %30 TP2 / %20 trail
-//  ✅ Win rate hesabı break-even ayrıştırmalı
 // ═══════════════════════════════════════════════════════════════════════
 
 // ┌──────────── RENK PALETİ ─────────────────────────────────────────┐
 C_BULL   = #00e5ff
 C_BEAR   = #ff1744
 C_GOLD   = #ffd600
-C_APEX   = #76ff03   // Parlak yeşil — APEX sinyal
+C_APEX   = #76ff03
 C_GREEN  = #00c853
 C_RED    = #d50000
 C_PURPLE = #d500f9
@@ -51,218 +31,212 @@ C_SEP    = #141e35
 
 // ── INPUTS ──────────────────────────────────────────────────────────
 g0 = "🎯 GENEL"
-i_mode     = input.string("APEX","Mod",
-             options=["APEX","SNIPER","PRECISION"], group=g0,
-             tooltip="APEX=6/6 onay zorunlu | SNIPER=5/6 | PRECISION=4/6")
-i_lev      = input.float(10,"Kaldıraç (x)",1,125,0.5,group=g0)
-i_risk     = input.float(1.0,"Risk (%)",0.1,5,0.1,group=g0)
-i_daily_max= input.int(1,"Günlük Max Sinyal",1,2,group=g0)
+i_mode      = input.string("APEX", "Mod",
+              options=["APEX","SNIPER","PRECISION"], group=g0,
+              tooltip="APEX=6/6 onay zorunlu | SNIPER=5/6 | PRECISION=4/6")
+i_lev       = input.float(10,  "Kaldıraç (x)", 1, 125, 0.5, group=g0)
+i_risk      = input.float(1.0, "Risk (%)", 0.1, 5, 0.1, group=g0)
+i_daily_max = input.int(1, "Günlük Max Sinyal", 1, 2, group=g0)
 
 g1 = "📈 TREND (3 MTF)"
-i_htf_w    = input.string("W",  "MTF 1 — Haftalık",options=["W","D"],group=g1)
-i_htf_d    = input.string("D",  "MTF 2 — Günlük",  options=["D","240"],group=g1)
-i_htf_h4   = input.string("240","MTF 3 — 4 Saatlik",options=["240","60"],group=g1)
-i_hma_len  = input.int(55,"HMA Uzunluk",group=g1)
-i_er_len   = input.int(21,"Efficiency Ratio",group=g1)
+i_htf_w  = input.string("W",   "MTF 1 — Haftalık",  options=["W","D"],       group=g1)
+i_htf_d  = input.string("D",   "MTF 2 — Günlük",    options=["D","240"],     group=g1)
+i_htf_h4 = input.string("240", "MTF 3 — 4 Saatlik", options=["240","60"],    group=g1)
+i_hma_len = input.int(55, "HMA Uzunluk", group=g1)
+i_er_len  = input.int(21, "Efficiency Ratio", group=g1)
 
 g2 = "🏦 SMC / LİKİDİTE"
-i_ssl_len  = input.int(20,"SSL/BSL Pencere",group=g2)
-i_swing    = input.int(8, "Swing Uzunluk",group=g2)
-i_mss_bars = input.int(15,"MSS Bekleme (bar)",group=g2)
-i_ote_bars = input.int(30,"OTE Bekleme (bar)",group=g2)
-i_pdh_len  = input.int(1, "PDH/PDL (gün geriye)",1,5,group=g2,
+i_ssl_len  = input.int(20, "SSL/BSL Pencere", group=g2)
+i_swing    = input.int(8,  "Swing Uzunluk",   group=g2)
+i_mss_bars = input.int(15, "MSS Bekleme (bar)", group=g2)
+i_ote_bars = input.int(30, "OTE Bekleme (bar)", group=g2)
+i_pdh_len  = input.int(1,  "PDH/PDL (gün geriye)", 1, 5, group=g2,
              tooltip="Previous Day High/Low — en güçlü likidite seviyesi")
 
 g3 = "🕐 KILLZONE (UTC)"
-i_kz_lon   = input.bool(true,"London 07:00–10:00",group=g3)
-i_kz_ny    = input.bool(true,"NY Open 13:00–16:00",group=g3)
+i_kz_lon = input.bool(true, "London 07:00–10:00", group=g3)
+i_kz_ny  = input.bool(true, "NY Open 13:00–16:00", group=g3)
 
 g4 = "⚡ FİLTRELER"
-i_wt_n1    = input.int(10,"WT Channel",group=g4)
-i_wt_n2    = input.int(21,"WT Average",group=g4)
-i_rsi_len  = input.int(14,"RSI",group=g4)
-i_rvol_apex= input.float(2.5,"APEX Min RVOL",0.5,5,0.1,group=g4)
-i_rvol_min = input.float(1.8,"Normal Min RVOL",0.5,5,0.1,group=g4)
-i_cvd_len  = input.int(20,"CVD Pencere",group=g4)
+i_wt_n1     = input.int(10,  "WT Channel",     group=g4)
+i_wt_n2     = input.int(21,  "WT Average",     group=g4)
+i_rsi_len   = input.int(14,  "RSI",            group=g4)
+i_rvol_apex = input.float(2.5, "APEX Min RVOL", 0.5, 5, 0.1, group=g4)
+i_rvol_min  = input.float(1.8, "Normal Min RVOL", 0.5, 5, 0.1, group=g4)
+i_cvd_len   = input.int(20, "CVD Pencere", group=g4)
 
 g5 = "🛡 RİSK / POZİSYON YÖNETİMİ"
-i_atr_len  = input.int(14,"ATR",group=g5)
-i_sl_buf   = input.float(0.3,"SL Buffer (ATR)",0.1,2,0.1,group=g5)
-i_tp1rr    = input.float(1.5,"TP1 RR — %50 çık",step=0.1,group=g5)
-i_tp2rr    = input.float(2.5,"TP2 RR — %30 çık",step=0.1,group=g5)
-i_tp3rr    = input.float(4.5,"TP3 RR — %20 trail",step=0.1,group=g5)
-i_be_auto  = input.bool(true,"Break-Even: TP1'de otomatik SL'yi BE'ye çek",group=g5)
+i_atr_len = input.int(14,  "ATR", group=g5)
+i_sl_buf  = input.float(0.3, "SL Buffer (ATR)", 0.1, 2, 0.1, group=g5)
+i_tp1rr   = input.float(1.5, "TP1 RR — %50 çık",  step=0.1, group=g5)
+i_tp2rr   = input.float(2.5, "TP2 RR — %30 çık",  step=0.1, group=g5)
+i_tp3rr   = input.float(4.5, "TP3 RR — %20 trail", step=0.1, group=g5)
+i_be_auto = input.bool(true, "Break-Even: TP1'de otomatik SL'yi BE'ye çek", group=g5)
 
 g6 = "🎨 GÖRSEL"
-i_dash     = input.bool(true,"Dashboard",group=g6)
-i_show_liq = input.bool(true,"Likidite Seviyeleri",group=g6)
-i_show_ote = input.bool(true,"OTE Bölgesi",group=g6)
-i_show_fvg = input.bool(true,"FVG",group=g6)
-i_show_ob  = input.bool(true,"Order Block",group=g6)
-i_show_kz  = input.bool(true,"Killzone Rengi",group=g6)
-i_show_pdh = input.bool(true,"PDH/PDL",group=g6)
+i_dash     = input.bool(true, "Dashboard",          group=g6)
+i_show_liq = input.bool(true, "Likidite Seviyeleri", group=g6)
+i_show_ote = input.bool(true, "OTE Bölgesi",        group=g6)
+i_show_fvg = input.bool(true, "FVG",                group=g6)
+i_show_ob  = input.bool(true, "Order Block",         group=g6)
+i_show_kz  = input.bool(true, "Killzone Rengi",      group=g6)
+i_show_pdh = input.bool(true, "PDH/PDL",             group=g6)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 1: TEMEL GÖSTERGELER
 // ═══════════════════════════════════════════════════════════════════════
-atr      = ta.atr(i_atr_len)
-atr_pct  = atr/close*100.0
+atr = ta.atr(i_atr_len)
 
-hma_val  = ta.hma(close, i_hma_len)
-hma_up   = hma_val > hma_val[1]
-hma_slope= (hma_val - hma_val[3])/hma_val*100.0
+hma_val = ta.hma(close, i_hma_len)
+hma_up  = hma_val > hma_val[1]
 
 er_net   = math.abs(close - close[i_er_len])
 er_path  = math.sum(math.abs(ta.change(close)), i_er_len)
-er       = er_path > 0.0 ? er_net/er_path : 0.0
+er       = er_path > 0.0 ? er_net / er_path : 0.0
 trending = er > 0.50
 
-[diplus, diminus, adx_val] = ta.dmi(14, 14)
+[_, _, adx_val] = ta.dmi(14, 14)
 adx_strong = adx_val > 25.0
 
 vwap_val = ta.vwap(hlc3)
 ema21    = ta.ema(close, 21)
 ema55    = ta.ema(close, 55)
 
-// ── 3 Katmanlı MTF (Weekly zorunlu) ─────────────────────────────────
+// ── 3 Katmanlı MTF ────────────────────────────────────────────────────
 htf_w_bull  = request.security(syminfo.tickerid, i_htf_w,  hma_up, lookahead=barmerge.lookahead_off)
 htf_d_bull  = request.security(syminfo.tickerid, i_htf_d,  hma_up, lookahead=barmerge.lookahead_off)
 htf_h4_bull = request.security(syminfo.tickerid, i_htf_h4, hma_up, lookahead=barmerge.lookahead_off)
 
-// APEX: 3/3 hizalama zorunlu
 macro_bull_apex = htf_w_bull  and htf_d_bull  and htf_h4_bull
 macro_bear_apex = not htf_w_bull and not htf_d_bull and not htf_h4_bull
-// SNIPER/PRECISION: 2/3 yeterli
-macro_bull_norm = (htf_w_bull?1:0)+(htf_d_bull?1:0)+(htf_h4_bull?1:0) >= 2
-macro_bear_norm = ((not htf_w_bull)?1:0)+((not htf_d_bull)?1:0)+((not htf_h4_bull)?1:0) >= 2
 
-macro_bull = i_mode=="APEX" ? macro_bull_apex : macro_bull_norm
-macro_bear = i_mode=="APEX" ? macro_bear_apex : macro_bear_norm
+macro_bull_norm = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0) >= 2
+macro_bear_norm = ((not htf_w_bull) ? 1 : 0) + ((not htf_d_bull) ? 1 : 0) + ((not htf_h4_bull) ? 1 : 0) >= 2
 
-mtf_score  = (htf_w_bull?1:0)+(htf_d_bull?1:0)+(htf_h4_bull?1:0)  // 0-3
+macro_bull = i_mode == "APEX" ? macro_bull_apex : macro_bull_norm
+macro_bear = i_mode == "APEX" ? macro_bear_apex : macro_bear_norm
+
+mtf_score = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 2: PDH / PDL TESPİTİ (En Güçlü Likidite Seviyeleri)
-//  ICT: "Price always seeks liquidity" — PDH/PDL en büyük hedef
+//  BÖLÜM 2: PDH / PDL TESPİTİ
 // ═══════════════════════════════════════════════════════════════════════
-pdh = request.security(syminfo.tickerid, "D", high[i_pdh_len],  lookahead=barmerge.lookahead_off)
-pdl = request.security(syminfo.tickerid, "D", low[i_pdh_len],   lookahead=barmerge.lookahead_off)
+pdh = request.security(syminfo.tickerid, "D", high[i_pdh_len], lookahead=barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[i_pdh_len],  lookahead=barmerge.lookahead_off)
 
-// PDH/PDL sweep: en yüksek olasılıklı setup
-pdh_sweep = not na(pdh) and high > pdh and close < pdh and close < open   // PDH sweep → SHORT
-pdl_sweep = not na(pdl) and low  < pdl and close > pdl and close > open   // PDL sweep → LONG
-
-pdh_near  = not na(pdh) and math.abs(high - pdh)/close < 0.003  // PDH'a yakın (%0.3)
-pdl_near  = not na(pdl) and math.abs(low  - pdl)/close < 0.003  // PDL'a yakın
+pdh_sweep = not na(pdh) and high > pdh and close < pdh and close < open
+pdl_sweep = not na(pdl) and low  < pdl and close > pdl and close > open
 
 if i_show_pdh and barstate.islast
     if not na(pdh)
-        line.new(bar_index-50, pdh, bar_index+10, pdh,
-             color=color.new(C_BEAR,20), style=line.style_solid, width=2)
-        label.new(bar_index+10, pdh, " PDH",
-             textcolor=color.new(C_BEAR,10), color=color.new(color.black,100),
+        line.new(bar_index - 50, pdh, bar_index + 10, pdh,
+             color=color.new(C_BEAR, 20), style=line.style_solid, width=2)
+        label.new(bar_index + 10, pdh, " PDH",
+             textcolor=color.new(C_BEAR, 10), color=color.new(color.black, 100),
              style=label.style_label_right, size=size.small)
     if not na(pdl)
-        line.new(bar_index-50, pdl, bar_index+10, pdl,
-             color=color.new(C_BULL,20), style=line.style_solid, width=2)
-        label.new(bar_index+10, pdl, " PDL",
-             textcolor=color.new(C_BULL,10), color=color.new(color.black,100),
+        line.new(bar_index - 50, pdl, bar_index + 10, pdl,
+             color=color.new(C_BULL, 20), style=line.style_solid, width=2)
+        label.new(bar_index + 10, pdl, " PDL",
+             textcolor=color.new(C_BULL, 10), color=color.new(color.black, 100),
              style=label.style_label_right, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 3: KİLLZONE
+//  BÖLÜM 3: KİLLZONE + HABER FİLTRESİ
 // ═══════════════════════════════════════════════════════════════════════
 h_utc     = hour(time, "UTC")
-kz_london = i_kz_lon and h_utc>=7  and h_utc<10
-kz_ny     = i_kz_ny  and h_utc>=13 and h_utc<16
+m_utc     = minute(time, "UTC")
+kz_london = i_kz_lon and h_utc >= 7  and h_utc < 10
+kz_ny     = i_kz_ny  and h_utc >= 13 and h_utc < 16
 in_kz     = kz_london or kz_ny
-kz_name   = kz_london?"LONDON":kz_ny?"NY OPEN":"—"
+kz_name   = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
 
-// Yüksek etkili haber saatleri (UTC) — bu dilimlerde işlem yapma
-// NFP: Cuma 12:30 / FOMC: Çarşamba 18:00 / CPI: ilgili günler 12:30
-news_filter = not (h_utc==12 and minute(time)>=20 and minute(time)<=45 and dayofweek==6) and
-              not (h_utc==18 and dayofweek==4)  // Basit FOMC/NFP filtresi
+// NFP: Cuma 12:30 / FOMC: Çarşamba 18:00
+news_filter = not (h_utc == 12 and m_utc >= 20 and m_utc <= 45 and dayofweek == 6) and
+              not (h_utc == 18 and dayofweek == 4)
 
-bgcolor(i_show_kz and kz_london?color.new(#1a3a6b,90):na, title="London KZ")
-bgcolor(i_show_kz and kz_ny    ?color.new(#0d3320,90):na, title="NY KZ")
+bgcolor(i_show_kz and kz_london ? color.new(#1a3a6b, 90) : na, title="London KZ")
+bgcolor(i_show_kz and kz_ny     ? color.new(#0d3320, 90) : na, title="NY KZ")
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 4: SSL / BSL + SWEEP TESPİTİ
 // ═══════════════════════════════════════════════════════════════════════
-ssl_20    = ta.lowest(low[1],   i_ssl_len)
-bsl_20    = ta.highest(high[1], i_ssl_len)
-ssl_50    = ta.lowest(low[1],   50)
-bsl_50    = ta.highest(high[1], 50)
+ssl_20 = ta.lowest(low[1],   i_ssl_len)
+bsl_20 = ta.highest(high[1], i_ssl_len)
+ssl_50 = ta.lowest(low[1],   50)
+bsl_50 = ta.highest(high[1], 50)
 
-// Sweep koşulları (katı — kıl geçmeli, mum kapatması içeri dönmeli)
 sweep_bull    = low  < ssl_20 and close > ssl_20 and close > open and in_kz
 sweep_bear    = high > bsl_20 and close < bsl_20 and close < open and in_kz
 sweep_bull_50 = low  < ssl_50 and close > ssl_50 and close > open and in_kz
 sweep_bear_50 = high > bsl_50 and close < bsl_50 and close < open and in_kz
 
-// PDL/PDH sweep → ekstra güç
 sweep_bull_pdl = pdl_sweep and in_kz
 sweep_bear_pdh = pdh_sweep and in_kz
 
-// En güçlü sweep: PDH/PDL veya 50-bar sweep
 sweep_bull_strong = sweep_bull_pdl or sweep_bull_50
 sweep_bear_strong = sweep_bear_pdh or sweep_bear_50
-// Normal sweep
+
 sweep_bull_any = sweep_bull or sweep_bull_strong
 sweep_bear_any = sweep_bear or sweep_bear_strong
 
 if i_show_liq and barstate.islast
-    line.new(bar_index-i_ssl_len, ssl_20, bar_index+8, ssl_20,
-         color=color.new(C_BULL,30), style=line.style_dashed, width=1)
-    line.new(bar_index-i_ssl_len, bsl_20, bar_index+8, bsl_20,
-         color=color.new(C_BEAR,30), style=line.style_dashed, width=1)
-    line.new(bar_index-50, ssl_50, bar_index+8, ssl_50,
-         color=color.new(C_BULL,55), style=line.style_dotted, width=2)
-    line.new(bar_index-50, bsl_50, bar_index+8, bsl_50,
-         color=color.new(C_BEAR,55), style=line.style_dotted, width=2)
+    line.new(bar_index - i_ssl_len, ssl_20, bar_index + 8, ssl_20,
+         color=color.new(C_BULL, 30), style=line.style_dashed, width=1)
+    line.new(bar_index - i_ssl_len, bsl_20, bar_index + 8, bsl_20,
+         color=color.new(C_BEAR, 30), style=line.style_dashed, width=1)
+    line.new(bar_index - 50, ssl_50, bar_index + 8, ssl_50,
+         color=color.new(C_BULL, 55), style=line.style_dotted, width=2)
+    line.new(bar_index - 50, bsl_50, bar_index + 8, bsl_50,
+         color=color.new(C_BEAR, 55), style=line.style_dotted, width=2)
 
-plotshape(sweep_bull_strong,"PDL/50 Sweep↑",shape.diamond,location.belowbar,
-          color.new(C_APEX,0), size=size.small)
-plotshape(sweep_bear_strong,"PDH/50 Sweep↓",shape.diamond,location.abovebar,
-          color.new(C_BEAR,0), size=size.small)
-plotshape(sweep_bull and not sweep_bull_strong,"SSL Sweep↑",shape.diamond,location.belowbar,
-          color.new(C_ORANGE,20), size=size.tiny)
-plotshape(sweep_bear and not sweep_bear_strong,"BSL Sweep↓",shape.diamond,location.abovebar,
-          color.new(C_ORANGE,20), size=size.tiny)
+plotshape(sweep_bull_strong, "PDL/50 Sweep↑", shape.diamond, location.belowbar,
+          color=color.new(C_APEX, 0), size=size.small)
+plotshape(sweep_bear_strong, "PDH/50 Sweep↓", shape.diamond, location.abovebar,
+          color=color.new(C_BEAR, 0), size=size.small)
+plotshape(sweep_bull and not sweep_bull_strong, "SSL Sweep↑", shape.diamond, location.belowbar,
+          color=color.new(C_ORANGE, 20), size=size.tiny)
+plotshape(sweep_bear and not sweep_bear_strong, "BSL Sweep↓", shape.diamond, location.abovebar,
+          color=color.new(C_ORANGE, 20), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 5: SWING + MSS / BOS / CHOCH
+//  BÖLÜM 5: SWING + MSS / BOS
 // ═══════════════════════════════════════════════════════════════════════
 swing_h = ta.pivothigh(high, i_swing, i_swing)
 swing_l = ta.pivotlow(low,   i_swing, i_swing)
 
-var float sh1=na; var float sh2=na
-var float sl1=na; var float sl2=na
+var float sh1 = na
+var float sh2 = na
+var float sl1 = na
+var float sl2 = na
 
 if not na(swing_h)
-    sh2:=sh1; sh1:=swing_h
+    sh2 := sh1
+    sh1 := swing_h
 if not na(swing_l)
-    sl2:=sl1; sl1:=swing_l
+    sl2 := sl1
+    sl1 := swing_l
 
-bos_bull  = not na(sh1) and not na(sh2) and ta.crossover(close,sh1)  and sh1>sh2 and close>open
-bos_bear  = not na(sl1) and not na(sl2) and ta.crossunder(close,sl1) and sl1<sl2 and close<open
-mss_bull  = not na(sh1) and not na(sh2) and ta.crossover(close,sh1)  and sh1<sh2 and close>open
-mss_bear  = not na(sl1) and not na(sl2) and ta.crossunder(close,sl1) and sl1>sl2 and close<open
+bos_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 > sh2 and close > open
+bos_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 < sl2 and close < open
+mss_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 < sh2 and close > open
+mss_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 > sl2 and close < open
 
 if mss_bull
-    label.new(bar_index,low-atr*0.8,"MSS",color=color.new(C_PURPLE,10),
-         textcolor=C_WHITE,style=label.style_label_up,size=size.tiny)
+    label.new(bar_index, low - atr * 0.8, "MSS",
+         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
+         style=label.style_label_up, size=size.tiny)
 if mss_bear
-    label.new(bar_index,high+atr*0.8,"MSS",color=color.new(C_PURPLE,10),
-         textcolor=C_WHITE,style=label.style_label_down,size=size.tiny)
+    label.new(bar_index, high + atr * 0.8, "MSS",
+         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
+         style=label.style_label_down, size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 6: FVG + ORDER BLOCK + HTF FVG ÇAKIŞMA
+//  BÖLÜM 6: FVG + ORDER BLOCK + HTF FVG
 // ═══════════════════════════════════════════════════════════════════════
 fvg_bull = low  > high[2] and close[1] > high[2]
 fvg_bear = high < low[2]  and close[1] < low[2]
 
-// HTF (4H) FVG — OTE bölgesinin HTF FVG ile çakışması = en güçlü giriş
 htf_fvg_bull = request.security(syminfo.tickerid, i_htf_h4,
                low > high[2] and close[1] > high[2],
                lookahead=barmerge.lookahead_off)
@@ -272,100 +246,110 @@ htf_fvg_bear = request.security(syminfo.tickerid, i_htf_h4,
 
 if i_show_fvg
     if fvg_bull
-        box.new(bar_index-2, high[2], bar_index+8, low,
-             border_color=color.new(C_BULL,60), bgcolor=color.new(C_BULL,93))
+        box.new(bar_index - 2, high[2], bar_index + 8, low,
+             border_color=color.new(C_BULL, 60), bgcolor=color.new(C_BULL, 93))
     if fvg_bear
-        box.new(bar_index-2, high, bar_index+8, low[2],
-             border_color=color.new(C_BEAR,60), bgcolor=color.new(C_BEAR,93))
+        box.new(bar_index - 2, high, bar_index + 8, low[2],
+             border_color=color.new(C_BEAR, 60), bgcolor=color.new(C_BEAR, 93))
 
-ob_bull_cond = bos_bull and close[i_swing]<open[i_swing]
-ob_bear_cond = bos_bear and close[i_swing]>open[i_swing]
+ob_bull_cond = bos_bull and close[i_swing] < open[i_swing]
+ob_bear_cond = bos_bear and close[i_swing] > open[i_swing]
 
 if i_show_ob
     if ob_bull_cond
-        box.new(bar_index-i_swing, low[i_swing], bar_index+12, high[i_swing],
-             border_color=color.new(C_GREEN,20), bgcolor=color.new(C_GREEN,89))
+        box.new(bar_index - i_swing, low[i_swing], bar_index + 12, high[i_swing],
+             border_color=color.new(C_GREEN, 20), bgcolor=color.new(C_GREEN, 89))
     if ob_bear_cond
-        box.new(bar_index-i_swing, low[i_swing], bar_index+12, high[i_swing],
-             border_color=color.new(C_RED,20), bgcolor=color.new(C_RED,89))
+        box.new(bar_index - i_swing, low[i_swing], bar_index + 12, high[i_swing],
+             border_color=color.new(C_RED, 20), bgcolor=color.new(C_RED, 89))
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 7: WAVE TREND + RSI + CVD + HACİM
 // ═══════════════════════════════════════════════════════════════════════
-ap    = hlc3; esa=ta.ema(ap,i_wt_n1)
-d_wt  = ta.ema(math.abs(ap-esa),i_wt_n1)
-ci    = d_wt>0.0?(ap-esa)/(0.015*d_wt):0.0
-wt1   = ta.ema(ci,i_wt_n2); wt2=ta.sma(wt1,4)
-wt_xup= ta.crossover(wt1,wt2) and wt1<-40.0
-wt_xdn= ta.crossunder(wt1,wt2) and wt1>40.0
-wt_bull=wt1>wt2; wt_bear=wt1<wt2
-wt_os =wt1<-50.0; wt_ob=wt1>50.0
-wt_bull_div=ta.lowest(low,10)<ta.lowest(low,10)[5] and ta.lowest(wt1,10)>ta.lowest(wt1,10)[5]
-wt_bear_div=ta.highest(high,10)>ta.highest(high,10)[5] and ta.highest(wt1,10)<ta.highest(wt1,10)[5]
+ap   = hlc3
+esa  = ta.ema(ap, i_wt_n1)
+d_wt = ta.ema(math.abs(ap - esa), i_wt_n1)
+ci   = d_wt > 0.0 ? (ap - esa) / (0.015 * d_wt) : 0.0
+wt1  = ta.ema(ci, i_wt_n2)
+wt2  = ta.sma(wt1, 4)
 
-rsi        = ta.rsi(close, i_rsi_len)
-rsi_os     = rsi < 30.0;  rsi_ob = rsi > 70.0
-rsi_bull_div=ta.lowest(low,8)<ta.lowest(low,8)[4] and ta.lowest(rsi,8)>ta.lowest(rsi,8)[4]
-rsi_bear_div=ta.highest(high,8)>ta.highest(high,8)[4] and ta.highest(rsi,8)<ta.highest(rsi,8)[4]
+wt_xup      = ta.crossover(wt1, wt2)  and wt1 < -40.0
+wt_xdn      = ta.crossunder(wt1, wt2) and wt1 >  40.0
+wt_bull     = wt1 > wt2
+wt_bear     = wt1 < wt2
+wt_os       = wt1 < -50.0
+wt_ob       = wt1 >  50.0
+wt_bull_div = ta.lowest(low, 10)  < ta.lowest(low, 10)[5]  and ta.lowest(wt1, 10)  > ta.lowest(wt1, 10)[5]
+wt_bear_div = ta.highest(high, 10) > ta.highest(high, 10)[5] and ta.highest(wt1, 10) < ta.highest(wt1, 10)[5]
 
-bv=volume*((close-low)/math.max(high-low,0.00001))
-sv=volume*((high-close)/math.max(high-low,0.00001))
-cvd_r     = math.sum(bv-sv, i_cvd_len)
-cvd_pos   = cvd_r>0.0; cvd_neg=cvd_r<0.0
-cvd_bull_div=cvd_r>cvd_r[5] and close<close[5]
-cvd_bear_div=cvd_r<cvd_r[5] and close>close[5]
+rsi         = ta.rsi(close, i_rsi_len)
+rsi_os      = rsi < 30.0
+rsi_ob      = rsi > 70.0
+rsi_bull_div = ta.lowest(low, 8)  < ta.lowest(low, 8)[4]  and ta.lowest(rsi, 8)  > ta.lowest(rsi, 8)[4]
+rsi_bear_div = ta.highest(high, 8) > ta.highest(high, 8)[4] and ta.highest(rsi, 8) < ta.highest(rsi, 8)[4]
 
-mfi        = ta.mfi(hlc3,14)
-mfi_bull   = mfi<30.0; mfi_bear=mfi>70.0
-vol_sma    = ta.sma(volume,20)
-rvol       = volume/math.max(vol_sma,0.00001)
-apex_vol   = rvol >= i_rvol_apex
-norm_vol   = rvol >= i_rvol_min
+bv      = volume * ((close - low)  / math.max(high - low, 0.00001))
+sv      = volume * ((high  - close) / math.max(high - low, 0.00001))
+cvd_r   = math.sum(bv - sv, i_cvd_len)
+cvd_pos = cvd_r > 0.0
+cvd_neg = cvd_r < 0.0
+cvd_bull_div = cvd_r > cvd_r[5] and close < close[5]
+cvd_bear_div = cvd_r < cvd_r[5] and close > close[5]
 
-w_lo=ta.lowest(low,25); w_hi=ta.highest(high,25); w_rng=w_hi-w_lo
-in_rng=ta.stdev(close,25)/close<0.025
-spring  =in_rng and low<w_lo+w_rng*0.10 and close>w_lo+w_rng*0.20 and norm_vol and close>open
-upthrust=in_rng and high>w_hi-w_rng*0.10 and close<w_hi-w_rng*0.20 and norm_vol and close<open
+mfi      = ta.mfi(hlc3, 14)
+mfi_bull = mfi < 30.0
+mfi_bear = mfi > 70.0
+
+vol_sma  = ta.sma(volume, 20)
+rvol     = volume / math.max(vol_sma, 0.00001)
+apex_vol = rvol >= i_rvol_apex
+norm_vol = rvol >= i_rvol_min
+
+w_lo     = ta.lowest(low, 25)
+w_hi     = ta.highest(high, 25)
+w_rng    = w_hi - w_lo
+in_rng   = ta.stdev(close, 25) / close < 0.025
+spring   = in_rng and low  < w_lo + w_rng * 0.10 and close > w_lo + w_rng * 0.20 and norm_vol and close > open
+upthrust = in_rng and high > w_hi - w_rng * 0.10 and close < w_hi - w_rng * 0.20 and norm_vol and close < open
 
 [st_trail, st_dir_t] = ta.supertrend(3.0, 10)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 8: 6 ONAY BİLEŞENİ (AĞIRLIKLI)
-//  Her bileşen 2 seviye: normal (1 puan) ve güçlü (2 puan) → max 12
+//  BÖLÜM 8: 6 ONAY BİLEŞENİ (AĞIRLIKLI — max 12 puan)
 // ═══════════════════════════════════════════════════════════════════════
 
 // LONG onayları
-lc1_base = wt_bull and wt_os                   // WT aşırı satım bölgede
-lc1_plus = wt_xup  and wt_os                   // WT aşırı satımdan çıkış (daha güçlü)
+lc1_base = wt_bull and wt_os
+lc1_plus = (wt_xup and wt_os) or wt_bull_div
 lc1_pts  = lc1_plus ? 2 : lc1_base ? 1 : 0
 
 lc2_base = rsi_os or rsi_bull_div
-lc2_plus = rsi_os and rsi_bull_div             // İkisi birden
+lc2_plus = rsi_os and rsi_bull_div
 lc2_pts  = lc2_plus ? 2 : lc2_base ? 1 : 0
 
 lc3_base = norm_vol
-lc3_plus = apex_vol                            // APEX seviye hacim
+lc3_plus = apex_vol
 lc3_pts  = lc3_plus ? 2 : lc3_base ? 1 : 0
 
 lc4_base = cvd_bull_div or cvd_pos
-lc4_plus = spring or (cvd_bull_div and cvd_pos)// Wyckoff veya hem div hem pozitif
+lc4_plus = spring or (cvd_bull_div and cvd_pos)
 lc4_pts  = lc4_plus ? 2 : lc4_base ? 1 : 0
 
-lc5_base = mfi_bull or htf_fvg_bull            // MFI veya HTF FVG
-lc5_plus = mfi_bull and htf_fvg_bull           // İkisi birden
+lc5_base = mfi_bull or htf_fvg_bull
+lc5_plus = mfi_bull and htf_fvg_bull
 lc5_pts  = lc5_plus ? 2 : lc5_base ? 1 : 0
 
 lc6_base = fvg_bull or ob_bull_cond
-lc6_plus = sweep_bull_strong or pdl_sweep      // PDL/50 sweep = en güçlü
+lc6_plus = sweep_bull_strong or pdl_sweep
 lc6_pts  = lc6_plus ? 2 : lc6_base ? 1 : 0
 
-l_total_pts  = lc1_pts + lc2_pts + lc3_pts + lc4_pts + lc5_pts + lc6_pts   // max 12
-l_onay_count = (lc1_pts>0?1:0)+(lc2_pts>0?1:0)+(lc3_pts>0?1:0)+
-               (lc4_pts>0?1:0)+(lc5_pts>0?1:0)+(lc6_pts>0?1:0)             // 0-6
+l_total_pts  = lc1_pts + lc2_pts + lc3_pts + lc4_pts + lc5_pts + lc6_pts
+l_onay_count = (lc1_pts > 0 ? 1 : 0) + (lc2_pts > 0 ? 1 : 0) + (lc3_pts > 0 ? 1 : 0) +
+               (lc4_pts > 0 ? 1 : 0) + (lc5_pts > 0 ? 1 : 0) + (lc6_pts > 0 ? 1 : 0)
 
 // SHORT onayları
 sc1_base = wt_bear and wt_ob
-sc1_plus = wt_xdn  and wt_ob
+sc1_plus = (wt_xdn and wt_ob) or wt_bear_div
 sc1_pts  = sc1_plus ? 2 : sc1_base ? 1 : 0
 
 sc2_base = rsi_ob or rsi_bear_div
@@ -388,111 +372,131 @@ sc6_base = fvg_bear or ob_bear_cond
 sc6_plus = sweep_bear_strong or pdh_sweep
 sc6_pts  = sc6_plus ? 2 : sc6_base ? 1 : 0
 
-s_total_pts  = sc1_pts+sc2_pts+sc3_pts+sc4_pts+sc5_pts+sc6_pts
-s_onay_count = (sc1_pts>0?1:0)+(sc2_pts>0?1:0)+(sc3_pts>0?1:0)+
-               (sc4_pts>0?1:0)+(sc5_pts>0?1:0)+(sc6_pts>0?1:0)
+s_total_pts  = sc1_pts + sc2_pts + sc3_pts + sc4_pts + sc5_pts + sc6_pts
+s_onay_count = (sc1_pts > 0 ? 1 : 0) + (sc2_pts > 0 ? 1 : 0) + (sc3_pts > 0 ? 1 : 0) +
+               (sc4_pts > 0 ? 1 : 0) + (sc5_pts > 0 ? 1 : 0) + (sc6_pts > 0 ? 1 : 0)
 
-// Sinyal seviyesi eşikleri
-min_onay = i_mode=="APEX" ? 6 : i_mode=="SNIPER" ? 5 : 4
-min_pts  = i_mode=="APEX" ? 9 : i_mode=="SNIPER" ? 7 : 5   // puan eşiği
+min_onay = i_mode == "APEX" ? 6 : i_mode == "SNIPER" ? 5 : 4
+min_pts  = i_mode == "APEX" ? 9 : i_mode == "SNIPER" ? 7 : 5
 
-is_apex_grade_l  = l_onay_count >= 6 and l_total_pts >= 10  // mükemmel setup
-is_apex_grade_s  = s_onay_count >= 6 and s_total_pts >= 10
+is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
+is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 9: DURUM MAKİNESİ (5 Adım)
+//  BÖLÜM 9: DURUM MAKİNESİ
 // ═══════════════════════════════════════════════════════════════════════
-var int   ls=0; var float l_swept=na; var float l_disp_top=na
-var float l_ote_hi=na; var float l_ote_lo=na; var int l_pbar=0
+var int   ls        = 0
+var float l_swept   = na
+var float l_disp_top = na
+var float l_ote_hi  = na
+var float l_ote_lo  = na
+var int   l_pbar    = 0
 
-var int   ss=0; var float s_swept=na; var float s_disp_bot=na
-var float s_ote_lo=na; var float s_ote_hi=na; var int s_pbar=0
+var int   ss        = 0
+var float s_swept   = na
+var float s_disp_bot = na
+var float s_ote_lo  = na
+var float s_ote_hi  = na
+var int   s_pbar    = 0
 
-var int day_cnt=0; var int last_day=0
+var int day_cnt  = 0
+var int last_day = 0
+
 if dayofmonth != last_day
-    day_cnt:=0; last_day:=dayofmonth
-can_signal = day_cnt < i_daily_max
+    day_cnt  := 0
+    last_day := dayofmonth
 
-max_wait = i_mss_bars + i_ote_bars + 10
-if ls>0 and (bar_index-l_pbar)>max_wait
-    ls:=0
-if ss>0 and (bar_index-s_pbar)>max_wait
-    ss:=0
+can_signal = day_cnt < i_daily_max
+max_wait   = i_mss_bars + i_ote_bars + 10
+
+if ls > 0 and (bar_index - l_pbar) > max_wait
+    ls := 0
+if ss > 0 and (bar_index - s_pbar) > max_wait
+    ss := 0
 
 // LONG geçişleri
-if ls==0 and can_signal and sweep_bull_any and macro_bull and trending and news_filter
-    ls:=1; l_swept:=low; l_pbar:=bar_index
+if ls == 0 and can_signal and sweep_bull_any and macro_bull and trending and news_filter
+    ls      := 1
+    l_swept := low
+    l_pbar  := bar_index
 
-if ls==1 and (mss_bull or bos_bull) and (bar_index-l_pbar)<=i_mss_bars
+if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_pbar) <= i_mss_bars
     l_disp_top := close
-    fib_r       = l_disp_top - nz(l_swept, close-atr*3.0)
-    l_ote_hi   := l_disp_top - fib_r*0.618
-    l_ote_lo   := l_disp_top - fib_r*0.786
-    ls:=2; l_pbar:=bar_index
+    fib_r       = l_disp_top - nz(l_swept, close - atr * 3.0)
+    l_ote_hi   := l_disp_top - fib_r * 0.618
+    l_ote_lo   := l_disp_top - fib_r * 0.786
+    ls         := 2
+    l_pbar     := bar_index
 
-if ls==2 and not na(l_ote_lo) and not na(l_ote_hi) and
-   close>=l_ote_lo and close<=l_ote_hi and (bar_index-l_pbar)<=i_ote_bars
-    ls:=3; l_pbar:=bar_index
+if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
+   close >= l_ote_lo and close <= l_ote_hi and (bar_index - l_pbar) <= i_ote_bars
+    ls     := 3
+    l_pbar := bar_index
 
 // SHORT geçişleri
-if ss==0 and can_signal and sweep_bear_any and macro_bear and trending and news_filter
-    ss:=1; s_swept:=high; s_pbar:=bar_index
+if ss == 0 and can_signal and sweep_bear_any and macro_bear and trending and news_filter
+    ss      := 1
+    s_swept := high
+    s_pbar  := bar_index
 
-if ss==1 and (mss_bear or bos_bear) and (bar_index-s_pbar)<=i_mss_bars
+if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_pbar) <= i_mss_bars
     s_disp_bot := close
-    fib_r2      = nz(s_swept, close+atr*3.0) - s_disp_bot
-    s_ote_lo   := s_disp_bot + fib_r2*0.618
-    s_ote_hi   := s_disp_bot + fib_r2*0.786
-    ss:=2; s_pbar:=bar_index
+    fib_r2      = nz(s_swept, close + atr * 3.0) - s_disp_bot
+    s_ote_lo   := s_disp_bot + fib_r2 * 0.618
+    s_ote_hi   := s_disp_bot + fib_r2 * 0.786
+    ss         := 2
+    s_pbar     := bar_index
 
-if ss==2 and not na(s_ote_lo) and not na(s_ote_hi) and
-   close>=s_ote_lo and close<=s_ote_hi and (bar_index-s_pbar)<=i_ote_bars
-    ss:=3; s_pbar:=bar_index
+if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
+   close >= s_ote_lo and close <= s_ote_hi and (bar_index - s_pbar) <= i_ote_bars
+    ss     := 3
+    s_pbar := bar_index
 
-// OTE görsel
 if i_show_ote
-    if (ls==2 or ls==3) and not na(l_ote_lo) and not na(l_ote_hi)
-        box.new(bar_index-1, l_ote_lo, bar_index+12, l_ote_hi,
-             border_color=color.new(C_GOLD,20),bgcolor=color.new(C_GOLD,91),
-             text=" OTE 61.8–78.6%", text_color=color.new(C_GOLD,15),text_size=size.tiny)
-    if (ss==2 or ss==3) and not na(s_ote_lo) and not na(s_ote_hi)
-        box.new(bar_index-1, s_ote_lo, bar_index+12, s_ote_hi,
-             border_color=color.new(C_ORANGE,20),bgcolor=color.new(C_ORANGE,91),
-             text=" OTE 61.8–78.6%", text_color=color.new(C_ORANGE,15),text_size=size.tiny)
+    if (ls == 2 or ls == 3) and not na(l_ote_lo) and not na(l_ote_hi)
+        box.new(bar_index - 1, l_ote_lo, bar_index + 12, l_ote_hi,
+             border_color=color.new(C_GOLD, 20), bgcolor=color.new(C_GOLD, 91),
+             text=" OTE 61.8–78.6%", text_color=color.new(C_GOLD, 15), text_size=size.tiny)
+    if (ss == 2 or ss == 3) and not na(s_ote_lo) and not na(s_ote_hi)
+        box.new(bar_index - 1, s_ote_lo, bar_index + 12, s_ote_hi,
+             border_color=color.new(C_ORANGE, 20), bgcolor=color.new(C_ORANGE, 91),
+             text=" OTE 61.8–78.6%", text_color=color.new(C_ORANGE, 15), text_size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 10: SİNYAL ÜRETİMİ
 // ═══════════════════════════════════════════════════════════════════════
-av_long_raw  = ls==3 and l_onay_count>=min_onay and l_total_pts>=min_pts and
+av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and
                in_kz and macro_bull and trending and can_signal and news_filter
-av_short_raw = ss==3 and s_onay_count>=min_onay and s_total_pts>=min_pts and
+av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and
                in_kz and macro_bear and trending and can_signal and news_filter
 
 av_long  = av_long_raw  and not av_long_raw[1]
 av_short = av_short_raw and not av_short_raw[1]
 
 if av_long
-    ls:=0; day_cnt+=1
+    ls      := 0
+    day_cnt += 1
 if av_short
-    ss:=0; day_cnt+=1
+    ss      := 0
+    day_cnt += 1
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 11: ADAPTİF RİSK + BREAK-EVEN YÖNETİMİ
-//
-//  %90+ Win Rate Formülü:
-//  1. SL → swept level altı (ICT doğru)
-//  2. TP1 gelince → SL'yi entry'e çek (artık kayıp yok)
-//  3. TP2'den sonra → Supertrend trail
-//  4. TP3 tam hedef veya trail stop ile çık
+//  BÖLÜM 11: BREAK-EVEN VE POZİSYON YÖNETİMİ
 // ═══════════════════════════════════════════════════════════════════════
-var float entry_p=na; var float sl_p=na;    var float sl_original=na
-var float tp1_p=na;   var float tp2_p=na;   var float tp3_p=na
-var int   trade_d=0;  var bool  be_hit=false; var bool tp1_hit=false
+var float entry_p    = na
+var float sl_p       = na
+var float sl_original = na
+var float tp1_p      = na
+var float tp2_p      = na
+var float tp3_p      = na
+var int   trade_d    = 0
+var bool  be_hit     = false
+var bool  tp1_hit    = false
 
 if av_long
     entry_p    := close
-    sl_p       := nz(l_swept, close-atr*3.0) - atr*i_sl_buf
-    sl_original:= sl_p
+    sl_p       := nz(l_swept, close - atr * 3.0) - atr * i_sl_buf
+    sl_original := sl_p
     risk_l      = entry_p - sl_p
     tp1_p      := entry_p + risk_l * i_tp1rr
     tp2_p      := entry_p + risk_l * i_tp2rr
@@ -503,8 +507,8 @@ if av_long
 
 if av_short
     entry_p    := close
-    sl_p       := nz(s_swept, close+atr*3.0) + atr*i_sl_buf
-    sl_original:= sl_p
+    sl_p       := nz(s_swept, close + atr * 3.0) + atr * i_sl_buf
+    sl_original := sl_p
     risk_s      = sl_p - entry_p
     tp1_p      := entry_p - risk_s * i_tp1rr
     tp2_p      := entry_p - risk_s * i_tp2rr
@@ -513,361 +517,376 @@ if av_short
     be_hit     := false
     tp1_hit    := false
 
-// Break-Even: TP1 gelince SL'yi entry'e çek
-if i_be_auto and trade_d==1 and not na(tp1_p) and close>=tp1_p and not tp1_hit
-    sl_p   := entry_p
-    tp1_hit:= true
-    be_hit := true
+if i_be_auto and trade_d == 1 and not na(tp1_p) and close >= tp1_p and not tp1_hit
+    sl_p    := entry_p
+    tp1_hit := true
+    be_hit  := true
 
-if i_be_auto and trade_d==-1 and not na(tp1_p) and close<=tp1_p and not tp1_hit
-    sl_p   := entry_p
-    tp1_hit:= true
-    be_hit := true
+if i_be_auto and trade_d == -1 and not na(tp1_p) and close <= tp1_p and not tp1_hit
+    sl_p    := entry_p
+    tp1_hit := true
+    be_hit  := true
 
-// Trailing: TP2'den sonra Supertrend trailing
-trail_active_l = trade_d==1  and tp1_hit and not na(tp2_p) and close>tp2_p
-trail_active_s = trade_d==-1 and tp1_hit and not na(tp2_p) and close<tp2_p
+trail_active_l = trade_d == 1  and tp1_hit and not na(tp2_p) and close > tp2_p
+trail_active_s = trade_d == -1 and tp1_hit and not na(tp2_p) and close < tp2_p
 
-// Risk hesaplama
-risk_pct_live = trade_d!=0 and not na(sl_p) and not na(entry_p) ?
-                math.abs(entry_p-sl_p)/entry_p*100.0 : 0.0
+risk_pct_live = trade_d != 0 and not na(sl_p) and not na(entry_p) ?
+                math.abs(entry_p - sl_p) / entry_p * 100.0 : 0.0
+pos_size_pct  = risk_pct_live > 0.0 ? i_risk / risk_pct_live * 100.0 : 0.0
 
-// Tahmini pozisyon büyüklüğü
-pos_size_pct  = risk_pct_live > 0.0 ? i_risk/risk_pct_live * 100.0 : 0.0
-
-// KAPAR koşulları
-kapar_long  = trade_d==1 and not na(sl_p) and not na(tp3_p) and (
-              ta.crossunder(close,sl_p) or
-              ta.crossover(close,tp3_p) or
+kapar_long  = trade_d == 1 and not na(sl_p) and not na(tp3_p) and (
+              ta.crossunder(close, sl_p) or
+              ta.crossover(close, tp3_p) or
               (trail_active_l and close < st_trail) or
-              (mss_bear and close>entry_p+(tp1_p-entry_p)*0.5))
+              (mss_bear and close > entry_p + (tp1_p - entry_p) * 0.5))
 
-kapar_short = trade_d==-1 and not na(sl_p) and not na(tp3_p) and (
-              ta.crossover(close,sl_p) or
-              ta.crossunder(close,tp3_p) or
+kapar_short = trade_d == -1 and not na(sl_p) and not na(tp3_p) and (
+              ta.crossover(close, sl_p) or
+              ta.crossunder(close, tp3_p) or
               (trail_active_s and close > st_trail) or
-              (mss_bull and close<entry_p-(entry_p-tp1_p)*0.5))
+              (mss_bull and close < entry_p - (entry_p - tp1_p) * 0.5))
 
 if kapar_long or kapar_short
-    trade_d:=0; be_hit:=false; tp1_hit:=false
+    trade_d := 0
+    be_hit  := false
+    tp1_hit := false
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 12: GRAFİK ÇİZGİLERİ
 // ═══════════════════════════════════════════════════════════════════════
-plot(hma_val,"HMA",  hma_up?color.new(C_BULL,15):color.new(C_BEAR,15), 2)
-plot(ema21,  "E21",  color.new(C_BULL,68), 1)
-plot(ema55,  "E55",  color.new(C_BEAR,68), 1)
-plot(vwap_val,"VWAP",color.new(C_WHITE,40),2)
-plot(st_trail,"ST",  st_dir_t<0?color.new(C_GREEN,30):color.new(C_RED,30),1,plot.style_linebr)
+plot(hma_val,  "HMA",  hma_up ? color.new(C_BULL, 15) : color.new(C_BEAR, 15), 2)
+plot(ema21,    "E21",  color.new(C_BULL, 68), 1)
+plot(ema55,    "E55",  color.new(C_BEAR, 68), 1)
+plot(vwap_val, "VWAP", color.new(C_WHITE, 40), 2)
+plot(st_trail, "ST",   st_dir_t < 0 ? color.new(C_GREEN, 30) : color.new(C_RED, 30), 1, plot.style_linebr)
 
-// TP / SL çizgileri
-be_color  = be_hit ? color.new(C_GOLD,15) : color.new(C_RED,10)
-plot(trade_d!=0?sl_p :na,"SL",  be_color,              2,plot.style_linebr)
-plot(trade_d!=0?tp1_p:na,"TP1", color.new(C_GREEN,50), 1,plot.style_linebr)
-plot(trade_d!=0?tp2_p:na,"TP2", color.new(C_GREEN,25), 1,plot.style_linebr)
-plot(trade_d!=0?tp3_p:na,"TP3", color.new(C_APEX,10),  2,plot.style_linebr)
+be_color = be_hit ? color.new(C_GOLD, 15) : color.new(C_RED, 10)
+plot(trade_d != 0 ? sl_p  : na, "SL",  be_color,               2, plot.style_linebr)
+plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 50), 1, plot.style_linebr)
+plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(C_GREEN, 25), 1, plot.style_linebr)
+plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX, 10),  2, plot.style_linebr)
 
-// Trail stop
-plot(trail_active_l?st_trail:na,"Trail↑",color.new(C_GOLD,15),2,plot.style_linebr)
-plot(trail_active_s?st_trail:na,"Trail↓",color.new(C_GOLD,15),2,plot.style_linebr)
+plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 15), 2, plot.style_linebr)
+plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 15), 2, plot.style_linebr)
 
-// Wyckoff
-plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar, color.new(C_BULL,0),size=size.tiny)
-plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color.new(C_BEAR,0),size=size.tiny)
+plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar, color=color.new(C_BULL, 0), size=size.tiny)
+plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color=color.new(C_BEAR, 0), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 13: SİNYAL ETİKETLERİ — Profesyonel Tasarım
+//  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
 // ═══════════════════════════════════════════════════════════════════════
 pts_bar(int p) =>
-    p>=12?"██████":p>=10?"█████░":p>=8?"████░░":p>=6?"███░░░":p>=4?"██░░░░":p>=2?"█░░░░░":"░░░░░░"
+    p >= 12 ? "██████" :
+    p >= 10 ? "█████░" :
+    p >= 8  ? "████░░" :
+    p >= 6  ? "███░░░" :
+    p >= 4  ? "██░░░░" :
+    p >= 2  ? "█░░░░░" : "░░░░░░"
 
+var table dt = table.new(position.top_right, 2, 26,
+     bgcolor=color.new(C_BG, 5),
+     border_color=color.new(#1a2540, 30), border_width=1,
+     frame_color=color.new(C_APEX, 40), frame_width=2)
+
+dc(int r, int c, string t, color tc, color bc) =>
+    table.cell(dt, c, r, t, text_color=tc, bgcolor=bc,
+               text_size=size.small, text_halign=text.align_left)
+
+dc_c(int r, int c, string t, color tc, color bc) =>
+    table.cell(dt, c, r, t, text_color=tc, bgcolor=bc,
+               text_size=size.small, text_halign=text.align_center)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 14: SİNYAL ETİKETLERİ
+// ═══════════════════════════════════════════════════════════════════════
 if av_long
-    grade    = is_apex_grade_l ? "◆ APEX GRADE" : "● SNIPER"
-    grade_c  = is_apex_grade_l ? C_APEX : C_BULL
-    pdl_txt  = pdl_sweep ? "  PDL ✓" : ""
-    kz_txt   = kz_london?"LONDON":kz_ny?"NY OPEN":"—"
+    l_grade  = is_apex_grade_l ? "◆ APEX GRADE" : "● SNIPER"
+    l_pdltxt = pdl_sweep ? "  PDL ✓" : ""
+    l_kztxt  = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
+    l_txt    = "▲  LONG  " + l_kztxt + "\n" +
+               "  " + l_grade + l_pdltxt + "\n" +
+               "─────────────────────\n" +
+               "Onay  " + pts_bar(l_total_pts) + "  " +
+               str.tostring(l_onay_count) + "/6  pts:" + str.tostring(l_total_pts) + "/12\n" +
+               "─────────────────────\n" +
+               "Entry  " + str.tostring(entry_p, "#.####") + "\n" +
+               "SL     " + str.tostring(sl_p, "#.####") +
+               "  (" + str.tostring(risk_pct_live, "#.##") + "%)\n" +
+               "TP1    " + str.tostring(tp1_p, "#.####") +
+               "  1:" + str.tostring(i_tp1rr, "#.#") + "  → BE\n" +
+               "TP2    " + str.tostring(tp2_p, "#.####") +
+               "  1:" + str.tostring(i_tp2rr, "#.#") + "  → Trail\n" +
+               "TP3    " + str.tostring(tp3_p, "#.####") +
+               "  1:" + str.tostring(i_tp3rr, "#.#") + "  → Exit\n" +
+               "─────────────────────\n" +
+               str.tostring(i_lev, "#") + "x  Risk:" + str.tostring(i_risk, "#.#") +
+               "%  Pos:" + str.tostring(pos_size_pct, "#.#") + "%"
 
-    lbl_txt = "▲  LONG  " + kz_txt + "\n" +
-              "  " + grade + pdl_txt + "\n" +
-              "─────────────────────\n" +
-              "Onay  " + pts_bar(l_total_pts) + "  " +
-              str.tostring(l_onay_count) + "/6  pts:" + str.tostring(l_total_pts) + "/12\n" +
-              "─────────────────────\n" +
-              "Entry  " + str.tostring(entry_p, "#.####") + "\n" +
-              "SL     " + str.tostring(sl_p,    "#.####") +
-              "  (" + str.tostring(risk_pct_live,"#.##") + "%)\n" +
-              "TP1    " + str.tostring(tp1_p,   "#.####") +
-              "  1:" + str.tostring(i_tp1rr,"#.#") + "  → BE\n" +
-              "TP2    " + str.tostring(tp2_p,   "#.####") +
-              "  1:" + str.tostring(i_tp2rr,"#.#") + "  → Trail\n" +
-              "TP3    " + str.tostring(tp3_p,   "#.####") +
-              "  1:" + str.tostring(i_tp3rr,"#.#") + "  → Exit\n" +
-              "─────────────────────\n" +
-              str.tostring(i_lev,"#") + "x  Risk:" + str.tostring(i_risk,"#.#") +
-              "%  Pos:" + str.tostring(pos_size_pct,"#.#") + "%"
-
-    label.new(bar_index, low - atr*3.5, lbl_txt,
-         color=color.new(is_apex_grade_l?C_APEX:C_GREEN, 5),
-         textcolor=C_WHITE,
+    l_bg = is_apex_grade_l ? color.new(C_APEX, 5) : color.new(C_GREEN, 5)
+    label.new(bar_index, low - atr * 3.5, l_txt,
+         color=l_bg, textcolor=C_WHITE,
          style=label.style_label_up, size=size.normal)
-
-    // Giriş çizgileri
-    line.new(bar_index,sl_p,  bar_index+25,sl_p,  color=color.new(C_RED,20),  style=line.style_dashed,width=1)
-    line.new(bar_index,tp1_p, bar_index+25,tp1_p, color=color.new(C_GREEN,50),style=line.style_dashed,width=1)
-    line.new(bar_index,tp2_p, bar_index+25,tp2_p, color=color.new(C_GREEN,25),style=line.style_dashed,width=1)
-    line.new(bar_index,tp3_p, bar_index+25,tp3_p, color=color.new(C_APEX,10), style=line.style_dashed,width=2)
+    line.new(bar_index, sl_p,  bar_index + 25, sl_p,  color=color.new(C_RED, 20),   style=line.style_dashed, width=1)
+    line.new(bar_index, tp1_p, bar_index + 25, tp1_p, color=color.new(C_GREEN, 50), style=line.style_dashed, width=1)
+    line.new(bar_index, tp2_p, bar_index + 25, tp2_p, color=color.new(C_GREEN, 25), style=line.style_dashed, width=1)
+    line.new(bar_index, tp3_p, bar_index + 25, tp3_p, color=color.new(C_APEX, 10),  style=line.style_dashed, width=2)
 
 if av_short
-    grade    = is_apex_grade_s ? "◆ APEX GRADE" : "● SNIPER"
-    pdh_txt  = pdh_sweep ? "  PDH ✓" : ""
-    kz_txt   = kz_london?"LONDON":kz_ny?"NY OPEN":"—"
+    s_grade  = is_apex_grade_s ? "◆ APEX GRADE" : "● SNIPER"
+    s_pdhtxt = pdh_sweep ? "  PDH ✓" : ""
+    s_kztxt  = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
+    s_txt    = "▼  SHORT  " + s_kztxt + "\n" +
+               "  " + s_grade + s_pdhtxt + "\n" +
+               "─────────────────────\n" +
+               "Onay  " + pts_bar(s_total_pts) + "  " +
+               str.tostring(s_onay_count) + "/6  pts:" + str.tostring(s_total_pts) + "/12\n" +
+               "─────────────────────\n" +
+               "Entry  " + str.tostring(entry_p, "#.####") + "\n" +
+               "SL     " + str.tostring(sl_p, "#.####") +
+               "  (" + str.tostring(risk_pct_live, "#.##") + "%)\n" +
+               "TP1    " + str.tostring(tp1_p, "#.####") +
+               "  1:" + str.tostring(i_tp1rr, "#.#") + "  → BE\n" +
+               "TP2    " + str.tostring(tp2_p, "#.####") +
+               "  1:" + str.tostring(i_tp2rr, "#.#") + "  → Trail\n" +
+               "TP3    " + str.tostring(tp3_p, "#.####") +
+               "  1:" + str.tostring(i_tp3rr, "#.#") + "  → Exit\n" +
+               "─────────────────────\n" +
+               str.tostring(i_lev, "#") + "x  Risk:" + str.tostring(i_risk, "#.#") +
+               "%  Pos:" + str.tostring(pos_size_pct, "#.#") + "%"
 
-    lbl_txt = "▼  SHORT  " + kz_txt + "\n" +
-              "  " + grade + pdh_txt + "\n" +
-              "─────────────────────\n" +
-              "Onay  " + pts_bar(s_total_pts) + "  " +
-              str.tostring(s_onay_count) + "/6  pts:" + str.tostring(s_total_pts) + "/12\n" +
-              "─────────────────────\n" +
-              "Entry  " + str.tostring(entry_p, "#.####") + "\n" +
-              "SL     " + str.tostring(sl_p,    "#.####") +
-              "  (" + str.tostring(risk_pct_live,"#.##") + "%)\n" +
-              "TP1    " + str.tostring(tp1_p,   "#.####") +
-              "  1:" + str.tostring(i_tp1rr,"#.#") + "  → BE\n" +
-              "TP2    " + str.tostring(tp2_p,   "#.####") +
-              "  1:" + str.tostring(i_tp2rr,"#.#") + "  → Trail\n" +
-              "TP3    " + str.tostring(tp3_p,   "#.####") +
-              "  1:" + str.tostring(i_tp3rr,"#.#") + "  → Exit\n" +
-              "─────────────────────\n" +
-              str.tostring(i_lev,"#") + "x  Risk:" + str.tostring(i_risk,"#.#") +
-              "%  Pos:" + str.tostring(pos_size_pct,"#.#") + "%"
-
-    label.new(bar_index, high + atr*3.5, lbl_txt,
-         color=color.new(is_apex_grade_s?C_BEAR:C_RED, 5),
-         textcolor=C_WHITE,
+    s_bg = is_apex_grade_s ? color.new(C_BEAR, 5) : color.new(C_RED, 5)
+    label.new(bar_index, high + atr * 3.5, s_txt,
+         color=s_bg, textcolor=C_WHITE,
          style=label.style_label_down, size=size.normal)
+    line.new(bar_index, sl_p,  bar_index + 25, sl_p,  color=color.new(C_RED, 20),   style=line.style_dashed, width=1)
+    line.new(bar_index, tp1_p, bar_index + 25, tp1_p, color=color.new(C_GREEN, 50), style=line.style_dashed, width=1)
+    line.new(bar_index, tp2_p, bar_index + 25, tp2_p, color=color.new(C_GREEN, 25), style=line.style_dashed, width=1)
+    line.new(bar_index, tp3_p, bar_index + 25, tp3_p, color=color.new(C_APEX, 10),  style=line.style_dashed, width=2)
 
-    line.new(bar_index,sl_p,  bar_index+25,sl_p,  color=color.new(C_RED,20),  style=line.style_dashed,width=1)
-    line.new(bar_index,tp1_p, bar_index+25,tp1_p, color=color.new(C_GREEN,50),style=line.style_dashed,width=1)
-    line.new(bar_index,tp2_p, bar_index+25,tp2_p, color=color.new(C_GREEN,25),style=line.style_dashed,width=1)
-    line.new(bar_index,tp3_p, bar_index+25,tp3_p, color=color.new(C_APEX,10), style=line.style_dashed,width=2)
-
-// Break-Even uyarısı
 if be_hit and not be_hit[1]
-    dir_txt = trade_d==1?"LONG":"SHORT"
-    label.new(bar_index, trade_d==1?high+atr:low-atr,
-         "BE  " + dir_txt + "\nSL → Entry",
-         color=color.new(C_GOLD,5), textcolor=C_BG,
-         style=trade_d==1?label.style_label_down:label.style_label_up,
-         size=size.small)
+    be_dir = trade_d == 1 ? "LONG" : "SHORT"
+    be_y   = trade_d == 1 ? high + atr : low - atr
+    be_st  = trade_d == 1 ? label.style_label_down : label.style_label_up
+    label.new(bar_index, be_y, "BE  " + be_dir + "\nSL → Entry",
+         color=color.new(C_GOLD, 5), textcolor=C_BG,
+         style=be_st, size=size.small)
 
 if kapar_long
-    label.new(bar_index, high+atr*1.5, "EXIT  LONG",
-         color=color.new(C_GOLD,5),textcolor=C_BG,
+    label.new(bar_index, high + atr * 1.5, "EXIT  LONG",
+         color=color.new(C_GOLD, 5), textcolor=C_BG,
          style=label.style_label_down, size=size.small)
 if kapar_short
-    label.new(bar_index, low-atr*1.5,  "EXIT  SHORT",
-         color=color.new(C_GOLD,5),textcolor=C_BG,
+    label.new(bar_index, low - atr * 1.5, "EXIT  SHORT",
+         color=color.new(C_GOLD, 5), textcolor=C_BG,
          style=label.style_label_up, size=size.small)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 14: İSTATİSTİKLER (Break-Even ayrıştırmalı)
-//  Win  = TP1 veya daha iyi çıkış
-//  BE   = entry'de çıkış (kayıp yok, ama kazanç da yok)
-//  Loss = gerçek stop-loss
+//  BÖLÜM 15: İSTATİSTİKLER
 // ═══════════════════════════════════════════════════════════════════════
-var int   tot=0; var int win_c=0; var int be_c=0; var int loss_c=0
-var float tot_rr=0.0; var int cur_w=0; var int max_w=0
+var int   tot     = 0
+var int   win_c   = 0
+var int   be_c    = 0
+var int   loss_c  = 0
+var float tot_rr  = 0.0
+var int   cur_w   = 0
+var int   max_w   = 0
 
 if av_long or av_short
-    tot+=1
+    tot += 1
 
 if kapar_long and not na(entry_p) and not na(sl_p)
-    rr=(close-entry_p)/math.max(entry_p-sl_p,0.00001)
-    if rr > 0.05
-        win_c+=1; cur_w+=1; max_w:=math.max(max_w,cur_w); tot_rr+=rr
-    else if rr > -0.15
-        be_c+=1; cur_w+=1
+    rr_l = (close - entry_p) / math.max(entry_p - sl_p, 0.00001)
+    if rr_l > 0.05
+        win_c  += 1
+        cur_w  += 1
+        max_w  := math.max(max_w, cur_w)
+        tot_rr += rr_l
+    else if rr_l > -0.15
+        be_c  += 1
+        cur_w += 1
     else
-        loss_c+=1; cur_w:=0
+        loss_c += 1
+        cur_w  := 0
 
 if kapar_short and not na(entry_p) and not na(sl_p)
-    rr=(entry_p-close)/math.max(sl_p-entry_p,0.00001)
-    if rr > 0.05
-        win_c+=1; cur_w+=1; max_w:=math.max(max_w,cur_w); tot_rr+=rr
-    else if rr > -0.15
-        be_c+=1; cur_w+=1
+    rr_s = (entry_p - close) / math.max(sl_p - entry_p, 0.00001)
+    if rr_s > 0.05
+        win_c  += 1
+        cur_w  += 1
+        max_w  := math.max(max_w, cur_w)
+        tot_rr += rr_s
+    else if rr_s > -0.15
+        be_c  += 1
+        cur_w += 1
     else
-        loss_c+=1; cur_w:=0
+        loss_c += 1
+        cur_w  := 0
 
-wr_strict = tot>0 ? float(win_c)/float(tot)*100.0 : 0.0                // Sadece win
-wr_be     = tot>0 ? float(win_c+be_c)/float(tot)*100.0 : 0.0           // Win + BE
-avg_rr    = win_c>0 ? tot_rr/float(win_c) : 0.0
-ev        = win_c>0 ? (wr_strict/100.0*avg_rr) - (float(loss_c)/float(tot)*1.0) : 0.0
+wr_strict = tot > 0 ? float(win_c) / float(tot) * 100.0 : 0.0
+wr_be     = tot > 0 ? float(win_c + be_c) / float(tot) * 100.0 : 0.0
+avg_rr    = win_c > 0 ? tot_rr / float(win_c) : 0.0
+ev        = win_c > 0 ? (wr_strict / 100.0 * avg_rr) - (float(loss_c) / float(math.max(tot, 1)) * 1.0) : 0.0
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 15: DASHBOARD — Pro Panel
+//  BÖLÜM 16: DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════
-var table dt = table.new(position.top_right, 2, 26,
-     bgcolor=color.new(C_BG,5),
-     border_color=color.new(#1a2540,30), border_width=1,
-     frame_color=color.new(C_APEX,40), frame_width=2)
-
-dc(int r,int c,string t,color tc,color bc) =>
-    table.cell(dt,c,r,t,text_color=tc,bgcolor=bc,text_size=size.small,text_halign=text.align_left)
-dc_c(int r,int c,string t,color tc,color bc) =>
-    table.cell(dt,c,r,t,text_color=tc,bgcolor=bc,text_size=size.small,text_halign=text.align_center)
-
 if i_dash and barstate.islast
-    SEP = color.new(C_SEP,0)
-
-    mtf_sc = mtf_score>=3?C_APEX:mtf_score>=2?C_GOLD:C_BEAR
-    mtf_t  = "W:" + (htf_w_bull?"▲":"▼") +
-             "  D:" + (htf_d_bull?"▲":"▼") +
-             "  4H:" + (htf_h4_bull?"▲":"▼") +
+    SEP    = color.new(C_SEP, 0)
+    mtf_sc = mtf_score >= 3 ? C_APEX : mtf_score >= 2 ? C_GOLD : C_BEAR
+    mtf_t  = "W:" + (htf_w_bull ? "▲" : "▼") +
+             "  D:" + (htf_d_bull ? "▲" : "▼") +
+             "  4H:" + (htf_h4_bull ? "▲" : "▼") +
              "  (" + str.tostring(mtf_score) + "/3)"
-    er_c   = er>0.6?C_APEX:er>0.4?C_GOLD:C_BEAR
-    kz_c   = in_kz?C_APEX:color.new(C_GRAY,30)
-    rv_c   = apex_vol?C_APEX:norm_vol?C_ORANGE:color.new(C_GRAY,30)
+    er_c   = er > 0.6 ? C_APEX : er > 0.4 ? C_GOLD : C_BEAR
+    kz_c   = in_kz ? C_APEX : color.new(C_GRAY, 30)
+    rv_c   = apex_vol ? C_APEX : norm_vol ? C_ORANGE : color.new(C_GRAY, 30)
+    news_c = news_filter ? C_APEX : C_BEAR
 
-    l_s    = ls==0?"⊙ IDLE":ls==1?"→ SWEPT":ls==2?"→ MSS":"⊛ OTE"
-    s_s    = ss==0?"⊙ IDLE":ss==1?"→ SWEPT":ss==2?"→ MSS":"⊛ OTE"
-    l_sc   = ls==3?C_APEX:ls>0?C_GOLD:color.new(C_GRAY,30)
-    s_sc   = ss==3?C_BEAR:ss>0?C_ORANGE:color.new(C_GRAY,30)
+    l_s  = ls == 0 ? "⊙ IDLE" : ls == 1 ? "→ SWEPT" : ls == 2 ? "→ MSS" : "⊛ OTE"
+    s_s  = ss == 0 ? "⊙ IDLE" : ss == 1 ? "→ SWEPT" : ss == 2 ? "→ MSS" : "⊛ OTE"
+    l_sc = ls == 3 ? C_APEX  : ls > 0 ? C_GOLD  : color.new(C_GRAY, 30)
+    s_sc = ss == 3 ? C_BEAR  : ss > 0 ? C_ORANGE : color.new(C_GRAY, 30)
 
     lpts_b = pts_bar(l_total_pts)
     spts_b = pts_bar(s_total_pts)
-    l_ok   = l_onay_count>=min_onay and l_total_pts>=min_pts
-    s_ok   = s_onay_count>=min_onay and s_total_pts>=min_pts
+    l_ok   = l_onay_count >= min_onay and l_total_pts >= min_pts
+    s_ok   = s_onay_count >= min_onay and s_total_pts >= min_pts
 
-    pdh_t  = not na(pdh) ? str.tostring(pdh,"#.##") : "—"
-    pdl_t  = not na(pdl) ? str.tostring(pdl,"#.##") : "—"
+    pdh_t = not na(pdh) ? str.tostring(pdh, "#.##") : "—"
+    pdl_t = not na(pdl) ? str.tostring(pdl, "#.##") : "—"
 
-    pos_c  = trade_d==1?C_BULL:trade_d==-1?C_BEAR:color.new(C_GRAY,30)
-    pos_t  = trade_d==1?"● LONG":trade_d==-1?"● SHORT":"○ —"
-    be_t   = be_hit?"✓ BE Aktif":"○ —"
-    be_c2  = be_hit?C_GOLD:color.new(C_GRAY,30)
+    pos_c = trade_d == 1 ? C_BULL : trade_d == -1 ? C_BEAR : color.new(C_GRAY, 30)
+    pos_t = trade_d == 1 ? "● LONG" : trade_d == -1 ? "● SHORT" : "○ —"
+    be_t  = be_hit ? "✓ BE Aktif" : "○ —"
+    be_c2 = be_hit ? C_GOLD : color.new(C_GRAY, 30)
 
-    wr_c   = wr_be>85.0?C_APEX:wr_be>70.0?C_BULL:wr_be>55.0?C_GOLD:C_BEAR
-    ev_c   = ev>1.0?C_APEX:ev>0.5?C_BULL:ev>0.0?C_GOLD:C_BEAR
-    news_c = news_filter?C_APEX:C_BEAR
+    wr_c = wr_be > 85.0 ? C_APEX : wr_be > 70.0 ? C_BULL : wr_be > 55.0 ? C_GOLD : C_BEAR
+    ev_c = ev > 1.0 ? C_APEX : ev > 0.5 ? C_BULL : ev > 0.0 ? C_GOLD : C_BEAR
 
-    // ── Header ─────────────────────────────────────────────────────
-    dc_c(0,0,"  ORACLE APEX  v3.0  ",     C_APEX, color.new(C_HDR,0))
-    dc_c(0,1,i_mode+"  "+str.tostring(i_lev,"#")+"x", C_WHITE,color.new(C_HDR,0))
+    // Header
+    dc_c(0, 0, "  ORACLE APEX  v3.0  ", C_APEX, color.new(C_HDR, 0))
+    dc_c(0, 1, i_mode + "  " + str.tostring(i_lev, "#") + "x", C_WHITE, color.new(C_HDR, 0))
 
-    // ── MARKET ─────────────────────────────────────────────────────
-    dc_c(1,0,"── MARKET ──────────",color.new(C_GRAY,45),SEP)
-    dc_c(1,1,"────────────────────",color.new(C_GRAY,45),SEP)
+    // MARKET
+    dc_c(1, 0, "── MARKET ──────────", color.new(C_GRAY, 45), SEP)
+    dc_c(1, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    dc(2, 0, "  MTF (W/D/4H)", color.new(C_GRAY, 20), C_BG2)
+    dc(2, 1, "  " + mtf_t, mtf_sc, C_BG2)
+    dc(3, 0, "  Eff. Ratio", color.new(C_GRAY, 20), C_BG2)
+    dc(3, 1, "  " + str.tostring(er, "#.##") + (trending ? " ✓" : " ✗"), er_c, C_BG2)
+    dc(4, 0, "  ADX", color.new(C_GRAY, 20), C_BG2)
+    dc(4, 1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? "  Strong" : "  Weak"),
+            adx_strong ? C_BULL : C_GOLD, C_BG2)
+    dc(5, 0, "  Killzone", color.new(C_GRAY, 20), C_BG2)
+    dc(5, 1, "  " + (in_kz ? "✓  " + kz_name : "✗  Out"), kz_c, C_BG2)
+    dc(6, 0, "  RVOL", color.new(C_GRAY, 20), C_BG2)
+    dc(6, 1, "  " + str.tostring(rvol, "#.##") + "x" + (apex_vol ? "  APEX" : norm_vol ? "  OK" : ""), rv_c, C_BG2)
+    dc(7, 0, "  Haber Filtre", color.new(C_GRAY, 20), C_BG2)
+    dc(7, 1, "  " + (news_filter ? "✓ Temiz" : "✗ Haber Var"), news_c, C_BG2)
 
-    dc(2, 0,"  MTF (W/D/4H)",color.new(C_GRAY,20),C_BG2)
-    dc(2, 1,"  "+mtf_t,      mtf_sc,              C_BG2)
-    dc(3, 0,"  Eff. Ratio",  color.new(C_GRAY,20),C_BG2)
-    dc(3, 1,"  "+str.tostring(er,"#.##")+(trending?" ✓":" ✗"), er_c, C_BG2)
-    dc(4, 0,"  ADX",         color.new(C_GRAY,20),C_BG2)
-    dc(4, 1,"  "+str.tostring(adx_val,"#.#")+(adx_strong?"  Strong":"  Weak"),
-            adx_strong?C_BULL:C_GOLD, C_BG2)
-    dc(5, 0,"  Killzone",    color.new(C_GRAY,20),C_BG2)
-    dc(5, 1,"  "+(in_kz?"✓  "+kz_name:"✗  Out"), kz_c, C_BG2)
-    dc(6, 0,"  RVOL",        color.new(C_GRAY,20),C_BG2)
-    dc(6, 1,"  "+str.tostring(rvol,"#.##")+"x"+(apex_vol?"  APEX":norm_vol?"  OK":""),rv_c,C_BG2)
-    dc(7, 0,"  Haber Filtre",color.new(C_GRAY,20),C_BG2)
-    dc(7, 1,"  "+(news_filter?"✓ Temiz":"✗ Haber Var"), news_c, C_BG2)
+    // PDH / PDL
+    dc_c(8, 0, "── PDH / PDL ───────", color.new(C_GRAY, 45), SEP)
+    dc_c(8, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    dc(9,  0, "  PDH", color.new(C_GRAY, 20), C_BG2)
+    dc(9,  1, "  " + pdh_t + (pdh_sweep ? "  ◆ SWEEP!" : ""), pdh_sweep ? C_BEAR : color.new(C_GRAY, 20), C_BG2)
+    dc(10, 0, "  PDL", color.new(C_GRAY, 20), C_BG2)
+    dc(10, 1, "  " + pdl_t + (pdl_sweep ? "  ◆ SWEEP!" : ""), pdl_sweep ? C_APEX : color.new(C_GRAY, 20), C_BG2)
 
-    // ── PDH / PDL ──────────────────────────────────────────────────
-    dc_c(8,0,"── PDH / PDL ───────",color.new(C_GRAY,45),SEP)
-    dc_c(8,1,"────────────────────",color.new(C_GRAY,45),SEP)
-    dc(9, 0,"  PDH",color.new(C_GRAY,20),C_BG2)
-    dc(9, 1,"  "+pdh_t+(pdh_sweep?"  ◆ SWEEP!":""),pdh_sweep?C_BEAR:color.new(C_GRAY,20),C_BG2)
-    dc(10,0,"  PDL",color.new(C_GRAY,20),C_BG2)
-    dc(10,1,"  "+pdl_t+(pdl_sweep?"  ◆ SWEEP!":""),pdl_sweep?C_APEX:color.new(C_GRAY,20),C_BG2)
+    // STATE
+    dc_c(11, 0, "── STATE ───────────", color.new(C_GRAY, 45), SEP)
+    dc_c(11, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    dc(12, 0, "  LONG",  color.new(C_BULL, 30), C_BG_L)
+    dc(12, 1, "  " + l_s, l_sc, C_BG_L)
+    dc(13, 0, "  SHORT", color.new(C_BEAR, 30), C_BG_S)
+    dc(13, 1, "  " + s_s, s_sc, C_BG_S)
 
-    // ── STATE ──────────────────────────────────────────────────────
-    dc_c(11,0,"── STATE ───────────",color.new(C_GRAY,45),SEP)
-    dc_c(11,1,"────────────────────",color.new(C_GRAY,45),SEP)
-    dc(12,0,"  LONG",color.new(C_BULL,30),C_BG_L)
-    dc(12,1,"  "+l_s,  l_sc,             C_BG_L)
-    dc(13,0,"  SHORT",color.new(C_BEAR,30),C_BG_S)
-    dc(13,1,"  "+s_s,  s_sc,              C_BG_S)
+    // CONFIRM
+    dc_c(14, 0, "── CONFIRM ─────────", color.new(C_GRAY, 45), SEP)
+    dc_c(14, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    lc_det = (lc1_pts > 0 ? "WT " : "") + (lc2_pts > 0 ? "RSI " : "") +
+             (lc3_pts > 0 ? "VOL " : "") + (lc4_pts > 0 ? "CVD " : "") +
+             (lc5_pts > 0 ? "MFI " : "") + (lc6_pts > 0 ? "SMC" : "")
+    sc_det = (sc1_pts > 0 ? "WT " : "") + (sc2_pts > 0 ? "RSI " : "") +
+             (sc3_pts > 0 ? "VOL " : "") + (sc4_pts > 0 ? "CVD " : "") +
+             (sc5_pts > 0 ? "MFI " : "") + (sc6_pts > 0 ? "SMC" : "")
+    dc(15, 0, "  L  " + lpts_b, l_ok ? C_APEX : C_GOLD, C_BG_L)
+    dc(15, 1, "  " + str.tostring(l_onay_count) + "/6  pts:" + str.tostring(l_total_pts) + " " + lc_det,
+            l_ok ? C_APEX : color.new(C_GRAY, 20), C_BG_L)
+    dc(16, 0, "  S  " + spts_b, s_ok ? C_BEAR : C_ORANGE, C_BG_S)
+    dc(16, 1, "  " + str.tostring(s_onay_count) + "/6  pts:" + str.tostring(s_total_pts) + " " + sc_det,
+            s_ok ? C_BEAR : color.new(C_GRAY, 20), C_BG_S)
 
-    // ── CONFIRM ────────────────────────────────────────────────────
-    dc_c(14,0,"── CONFIRM ─────────",color.new(C_GRAY,45),SEP)
-    dc_c(14,1,"────────────────────",color.new(C_GRAY,45),SEP)
+    // POSITION
+    dc_c(17, 0, "── POSITION ────────", color.new(C_GRAY, 45), SEP)
+    dc_c(17, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    dc(18, 0, "  Pozisyon",   color.new(C_GRAY, 20), C_BG_ST)
+    dc(18, 1, "  " + pos_t,   pos_c,                 C_BG_ST)
+    dc(19, 0, "  Break-Even", color.new(C_GRAY, 20), C_BG_ST)
+    dc(19, 1, "  " + be_t,    be_c2,                 C_BG_ST)
+    dc(20, 0, "  Bugün", color.new(C_GRAY, 20), C_BG_ST)
+    dc(20, 1, "  " + str.tostring(day_cnt) + "/" + str.tostring(i_daily_max) +
+            (day_cnt >= i_daily_max ? "  LIMIT" : "  OK"),
+            day_cnt >= i_daily_max ? C_ORANGE : C_APEX, C_BG_ST)
 
-    lc_det=(lc1_pts>0?"WT ":"")+(lc2_pts>0?"RSI ":"")+(lc3_pts>0?"VOL ":"")+(lc4_pts>0?"CVD/WY ":"")+(lc5_pts>0?"MFI/HTF ":"")+(lc6_pts>0?"SMC":"")
-    sc_det=(sc1_pts>0?"WT ":"")+(sc2_pts>0?"RSI ":"")+(sc3_pts>0?"VOL ":"")+(sc4_pts>0?"CVD/WY ":"")+(sc5_pts>0?"MFI/HTF ":"")+(sc6_pts>0?"SMC":"")
-
-    dc(15,0,"  L  "+lpts_b,l_ok?C_APEX:C_GOLD,C_BG_L)
-    dc(15,1,"  "+str.tostring(l_onay_count)+"/6  pts:"+str.tostring(l_total_pts)+" "+lc_det,l_ok?C_APEX:color.new(C_GRAY,20),C_BG_L)
-    dc(16,0,"  S  "+spts_b,s_ok?C_BEAR:C_ORANGE,C_BG_S)
-    dc(16,1,"  "+str.tostring(s_onay_count)+"/6  pts:"+str.tostring(s_total_pts)+" "+sc_det,s_ok?C_BEAR:color.new(C_GRAY,20),C_BG_S)
-
-    // ── POSITION ───────────────────────────────────────────────────
-    dc_c(17,0,"── POSITION ────────",color.new(C_GRAY,45),SEP)
-    dc_c(17,1,"────────────────────",color.new(C_GRAY,45),SEP)
-    dc(18,0,"  Pozisyon",   color.new(C_GRAY,20),C_BG_ST)
-    dc(18,1,"  "+pos_t,     pos_c,               C_BG_ST)
-    dc(19,0,"  Break-Even", color.new(C_GRAY,20),C_BG_ST)
-    dc(19,1,"  "+be_t,      be_c2,               C_BG_ST)
-    dc(20,0,"  Bugün",      color.new(C_GRAY,20),C_BG_ST)
-    dc(20,1,"  "+str.tostring(day_cnt)+"/"+str.tostring(i_daily_max)+(day_cnt>=i_daily_max?"  LIMIT":"  OK"),
-            day_cnt>=i_daily_max?C_ORANGE:C_APEX, C_BG_ST)
-
-    // ── STATS ──────────────────────────────────────────────────────
-    dc_c(21,0,"── STATS ───────────",color.new(C_GRAY,45),SEP)
-    dc_c(21,1,"────────────────────",color.new(C_GRAY,45),SEP)
-    dc(22,0,"  Win+BE Rate",color.new(C_GRAY,20),C_BG2)
-    dc(22,1,"  "+str.tostring(wr_be,"#.#")+"% (W:"+str.tostring(win_c)+" BE:"+str.tostring(be_c)+" L:"+str.tostring(loss_c)+")",wr_c,C_BG2)
-    dc(23,0,"  Win Rate",   color.new(C_GRAY,20),C_BG2)
-    dc(23,1,"  "+str.tostring(wr_strict,"#.#")+"% net",
-            wr_strict>70.0?C_APEX:wr_strict>55.0?C_GOLD:C_BEAR, C_BG2)
-    dc(24,0,"  Avg RR",     color.new(C_GRAY,20),C_BG2)
-    dc(24,1,"  1 : "+str.tostring(avg_rr,"#.##"),avg_rr>2.5?C_APEX:avg_rr>1.5?C_GOLD:C_BEAR,C_BG2)
-    dc(25,0,"  Beklenti",   color.new(C_GRAY,20),C_BG2)
-    dc(25,1,"  "+str.tostring(ev,"#.##")+" R",ev_c,C_BG2)
+    // STATS
+    dc_c(21, 0, "── STATS ───────────", color.new(C_GRAY, 45), SEP)
+    dc_c(21, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
+    dc(22, 0, "  Win+BE Rate", color.new(C_GRAY, 20), C_BG2)
+    dc(22, 1, "  " + str.tostring(wr_be, "#.#") + "% (W:" + str.tostring(win_c) +
+            " BE:" + str.tostring(be_c) + " L:" + str.tostring(loss_c) + ")", wr_c, C_BG2)
+    dc(23, 0, "  Win Rate", color.new(C_GRAY, 20), C_BG2)
+    dc(23, 1, "  " + str.tostring(wr_strict, "#.#") + "% net",
+            wr_strict > 70.0 ? C_APEX : wr_strict > 55.0 ? C_GOLD : C_BEAR, C_BG2)
+    dc(24, 0, "  Avg RR", color.new(C_GRAY, 20), C_BG2)
+    dc(24, 1, "  1 : " + str.tostring(avg_rr, "#.##"),
+            avg_rr > 2.5 ? C_APEX : avg_rr > 1.5 ? C_GOLD : C_BEAR, C_BG2)
+    dc(25, 0, "  Beklenti", color.new(C_GRAY, 20), C_BG2)
+    dc(25, 1, "  " + str.tostring(ev, "#.##") + " R", ev_c, C_BG2)
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 16: ALERTLER
+//  BÖLÜM 17: ALERTLER
 // ═══════════════════════════════════════════════════════════════════════
-alertcondition(av_long, "APEX  LONG",
+alertcondition(av_long, "APEX LONG",
      '{"s":"LONG","src":"ORACLE_APEX_v3","sym":"{{ticker}}",' +
      '"tf":"{{interval}}","px":"{{close}}",' +
-     '"sl":"'+str.tostring(sl_p,"#.######")+'",' +
-     '"tp1":"'+str.tostring(tp1_p,"#.######")+'",' +
-     '"tp2":"'+str.tostring(tp2_p,"#.######")+'",' +
-     '"tp3":"'+str.tostring(tp3_p,"#.######")+'",' +
-     '"grade":"'+(is_apex_grade_l?"APEX":"SNIPER")+'",' +
-     '"pts":"'+str.tostring(l_total_pts)+'",' +
-     '"conf":"'+str.tostring(l_onay_count)+'",' +
-     '"kz":"'+kz_name+'","er":"'+str.tostring(er,"#.##")+'",' +
-     '"rvol":"'+str.tostring(rvol,"#.##")+'",' +
-     '"pdl":"'+(pdl_sweep?"true":"false")+'",' +
-     '"mtf":"'+str.tostring(mtf_score)+'/3","act":"buy"}')
+     '"sl":"'  + str.tostring(sl_p,  "#.######") + '",' +
+     '"tp1":"' + str.tostring(tp1_p, "#.######") + '",' +
+     '"tp2":"' + str.tostring(tp2_p, "#.######") + '",' +
+     '"tp3":"' + str.tostring(tp3_p, "#.######") + '",' +
+     '"grade":"' + (is_apex_grade_l ? "APEX" : "SNIPER") + '",' +
+     '"pts":"'  + str.tostring(l_total_pts)  + '",' +
+     '"conf":"' + str.tostring(l_onay_count) + '",' +
+     '"kz":"'   + kz_name + '",' +
+     '"rvol":"' + str.tostring(rvol, "#.##") + '",' +
+     '"pdl":"'  + (pdl_sweep ? "true" : "false") + '",' +
+     '"mtf":"'  + str.tostring(mtf_score) + '/3","act":"buy"}')
 
-alertcondition(av_short,"APEX  SHORT",
+alertcondition(av_short, "APEX SHORT",
      '{"s":"SHORT","src":"ORACLE_APEX_v3","sym":"{{ticker}}",' +
      '"tf":"{{interval}}","px":"{{close}}",' +
-     '"sl":"'+str.tostring(sl_p,"#.######")+'",' +
-     '"tp1":"'+str.tostring(tp1_p,"#.######")+'",' +
-     '"tp2":"'+str.tostring(tp2_p,"#.######")+'",' +
-     '"tp3":"'+str.tostring(tp3_p,"#.######")+'",' +
-     '"grade":"'+(is_apex_grade_s?"APEX":"SNIPER")+'",' +
-     '"pts":"'+str.tostring(s_total_pts)+'",' +
-     '"conf":"'+str.tostring(s_onay_count)+'",' +
-     '"kz":"'+kz_name+'","er":"'+str.tostring(er,"#.##")+'",' +
-     '"rvol":"'+str.tostring(rvol,"#.##")+'",' +
-     '"pdh":"'+(pdh_sweep?"true":"false")+'",' +
-     '"mtf":"'+str.tostring(mtf_score)+'/3","act":"sell"}')
+     '"sl":"'  + str.tostring(sl_p,  "#.######") + '",' +
+     '"tp1":"' + str.tostring(tp1_p, "#.######") + '",' +
+     '"tp2":"' + str.tostring(tp2_p, "#.######") + '",' +
+     '"tp3":"' + str.tostring(tp3_p, "#.######") + '",' +
+     '"grade":"' + (is_apex_grade_s ? "APEX" : "SNIPER") + '",' +
+     '"pts":"'  + str.tostring(s_total_pts)  + '",' +
+     '"conf":"' + str.tostring(s_onay_count) + '",' +
+     '"kz":"'   + kz_name + '",' +
+     '"rvol":"' + str.tostring(rvol, "#.##") + '",' +
+     '"pdh":"'  + (pdh_sweep ? "true" : "false") + '",' +
+     '"mtf":"'  + str.tostring(mtf_score) + '/3","act":"sell"}')
 
-alertcondition(kapar_long or kapar_short,"APEX  EXIT",
+alertcondition(kapar_long or kapar_short, "APEX EXIT",
      '{"s":"EXIT","src":"ORACLE_APEX_v3","sym":"{{ticker}}","px":"{{close}}","act":"close"}')
 
-alertcondition(be_hit and not be_hit[1],"APEX  BREAK-EVEN",
-     '{"s":"MOVE_SL_BE","sym":"{{ticker}}","px":"{{close}}","new_sl":"'+str.tostring(entry_p,"#.######")+'"}')
+alertcondition(be_hit and not be_hit[1], "APEX BREAK-EVEN",
+     '{"s":"MOVE_SL_BE","sym":"{{ticker}}","px":"{{close}}","new_sl":"' +
+     str.tostring(entry_p, "#.######") + '"}')
 
-alertcondition(is_apex_grade_l and ls==3,"APEX GRADE LONG READY",
+alertcondition(is_apex_grade_l and ls == 3, "APEX GRADE LONG READY",
      '{"s":"APEX_READY","dir":"LONG","sym":"{{ticker}}","px":"{{close}}",' +
-     '"pts":"'+str.tostring(l_total_pts)+'","pdl":"'+(pdl_sweep?"true":"false")+'"}')
+     '"pts":"' + str.tostring(l_total_pts) + '","pdl":"' + (pdl_sweep ? "true" : "false") + '"}')
 
-alertcondition(is_apex_grade_s and ss==3,"APEX GRADE SHORT READY",
+alertcondition(is_apex_grade_s and ss == 3, "APEX GRADE SHORT READY",
      '{"s":"APEX_READY","dir":"SHORT","sym":"{{ticker}}","px":"{{close}}",' +
-     '"pts":"'+str.tostring(s_total_pts)+'","pdh":"'+(pdh_sweep?"true":"false")+'"}')
+     '"pts":"' + str.tostring(s_total_pts) + '","pdh":"' + (pdh_sweep ? "true" : "false") + '"}')
