@@ -838,47 +838,24 @@ if i_dash and barstate.islast
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 17: ALERTLER
 // ═══════════════════════════════════════════════════════════════════════
-alertcondition(av_long, "APEX LONG",
-     '{"s":"LONG","src":"ORACLE_APEX_v3","sym":"{{ticker}}",' +
-     '"tf":"{{interval}}","px":"{{close}}",' +
-     '"sl":"'  + str.tostring(sl_p,  "#.######") + '",' +
-     '"tp1":"' + str.tostring(tp1_p, "#.######") + '",' +
-     '"tp2":"' + str.tostring(tp2_p, "#.######") + '",' +
-     '"tp3":"' + str.tostring(tp3_p, "#.######") + '",' +
-     '"grade":"' + (is_apex_grade_l ? "APEX" : "SNIPER") + '",' +
-     '"pts":"'  + str.tostring(l_total_pts)  + '",' +
-     '"conf":"' + str.tostring(l_onay_count) + '",' +
-     '"kz":"'   + kz_name + '",' +
-     '"rvol":"' + str.tostring(rvol, "#.##") + '",' +
-     '"pdl":"'  + (pdl_sweep ? "true" : "false") + '",' +
-     '"mtf":"'  + str.tostring(mtf_score) + '/3","act":"buy"}')
+// Pine v6: alertcondition mesaji const string olmali — dinamik degerler
+// icin alert() kullanilir. alertcondition sadece alert listesi icin.
+alertcondition(av_long,  "APEX LONG",  "ORACLE APEX v3 — LONG Sinyali")
+alertcondition(av_short, "APEX SHORT", "ORACLE APEX v3 — SHORT Sinyali")
+alertcondition(kapar_long or kapar_short, "APEX EXIT", "ORACLE APEX v3 — Pozisyon Kapat")
+alertcondition(be_hit and not be_hit[1], "APEX BREAK-EVEN", "ORACLE APEX v3 — SL Break-Even")
+alertcondition(is_apex_grade_l and ls == 3, "APEX GRADE LONG READY",  "ORACLE APEX v3 — APEX GRADE LONG Hazir")
+alertcondition(is_apex_grade_s and ss == 3, "APEX GRADE SHORT READY", "ORACLE APEX v3 — APEX GRADE SHORT Hazir")
 
-alertcondition(av_short, "APEX SHORT",
-     '{"s":"SHORT","src":"ORACLE_APEX_v3","sym":"{{ticker}}",' +
-     '"tf":"{{interval}}","px":"{{close}}",' +
-     '"sl":"'  + str.tostring(sl_p,  "#.######") + '",' +
-     '"tp1":"' + str.tostring(tp1_p, "#.######") + '",' +
-     '"tp2":"' + str.tostring(tp2_p, "#.######") + '",' +
-     '"tp3":"' + str.tostring(tp3_p, "#.######") + '",' +
-     '"grade":"' + (is_apex_grade_s ? "APEX" : "SNIPER") + '",' +
-     '"pts":"'  + str.tostring(s_total_pts)  + '",' +
-     '"conf":"' + str.tostring(s_onay_count) + '",' +
-     '"kz":"'   + kz_name + '",' +
-     '"rvol":"' + str.tostring(rvol, "#.##") + '",' +
-     '"pdh":"'  + (pdh_sweep ? "true" : "false") + '",' +
-     '"mtf":"'  + str.tostring(mtf_score) + '/3","act":"sell"}')
+// Dinamik JSON webhook alertleri — alert() ile
+if av_long
+    alert('{"s":"LONG","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_apex_grade_l ? "APEX" : "SNIPER") + '","pts":"' + str.tostring(l_total_pts) + '","conf":"' + str.tostring(l_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","pdl":"' + (pdl_sweep ? "true" : "false") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"buy"}', alert.freq_once_per_bar)
 
-alertcondition(kapar_long or kapar_short, "APEX EXIT",
-     '{"s":"EXIT","src":"ORACLE_APEX_v3","sym":"{{ticker}}","px":"{{close}}","act":"close"}')
+if av_short
+    alert('{"s":"SHORT","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_apex_grade_s ? "APEX" : "SNIPER") + '","pts":"' + str.tostring(s_total_pts) + '","conf":"' + str.tostring(s_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","pdh":"' + (pdh_sweep ? "true" : "false") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"sell"}', alert.freq_once_per_bar)
 
-alertcondition(be_hit and not be_hit[1], "APEX BREAK-EVEN",
-     '{"s":"MOVE_SL_BE","sym":"{{ticker}}","px":"{{close}}","new_sl":"' +
-     str.tostring(entry_p, "#.######") + '"}')
+if kapar_long or kapar_short
+    alert('{"s":"EXIT","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","px":"' + str.tostring(close,"#.####") + '","act":"close"}', alert.freq_once_per_bar)
 
-alertcondition(is_apex_grade_l and ls == 3, "APEX GRADE LONG READY",
-     '{"s":"APEX_READY","dir":"LONG","sym":"{{ticker}}","px":"{{close}}",' +
-     '"pts":"' + str.tostring(l_total_pts) + '","pdl":"' + (pdl_sweep ? "true" : "false") + '"}')
-
-alertcondition(is_apex_grade_s and ss == 3, "APEX GRADE SHORT READY",
-     '{"s":"APEX_READY","dir":"SHORT","sym":"{{ticker}}","px":"{{close}}",' +
-     '"pts":"' + str.tostring(s_total_pts) + '","pdh":"' + (pdh_sweep ? "true" : "false") + '"}')
+if be_hit and not be_hit[1]
+    alert('{"s":"MOVE_SL_BE","sym":"' + syminfo.ticker + '","px":"' + str.tostring(close,"#.####") + '","new_sl":"' + str.tostring(nz(entry_p),"#.####") + '"}', alert.freq_once_per_bar)
