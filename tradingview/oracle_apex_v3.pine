@@ -530,8 +530,7 @@ if i_be_auto and trade_d == -1 and not na(tp1_p) and close <= tp1_p and not tp1_
 trail_active_l = trade_d == 1  and tp1_hit and not na(tp2_p) and close > tp2_p
 trail_active_s = trade_d == -1 and tp1_hit and not na(tp2_p) and close < tp2_p
 
-risk_pct_live = trade_d != 0 and not na(sl_p) and not na(entry_p) ?
-                math.abs(entry_p - sl_p) / entry_p * 100.0 : 0.0
+risk_pct_live = trade_d != 0 and not na(sl_p) and not na(entry_p) ? math.abs(entry_p - sl_p) / entry_p * 100.0 : 0.0
 pos_size_pct  = risk_pct_live > 0.0 ? i_risk / risk_pct_live * 100.0 : 0.0
 
 kapar_long  = trade_d == 1 and not na(sl_p) and not na(tp3_p) and (
@@ -576,12 +575,7 @@ plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color=col
 //  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
 // ═══════════════════════════════════════════════════════════════════════
 pts_bar(int p) =>
-    p >= 12 ? "██████" :
-    p >= 10 ? "█████░" :
-    p >= 8  ? "████░░" :
-    p >= 6  ? "███░░░" :
-    p >= 4  ? "██░░░░" :
-    p >= 2  ? "█░░░░░" : "░░░░░░"
+    p >= 12 ? "██████" : p >= 10 ? "█████░" : p >= 8 ? "████░░" : p >= 6 ? "███░░░" : p >= 4 ? "██░░░░" : p >= 2 ? "█░░░░░" : "░░░░░░"
 
 var table dt = table.new(position.top_right, 2, 26,
      bgcolor=color.new(C_BG, 5),
@@ -775,8 +769,7 @@ if i_dash and barstate.islast
     dc(3, 0, "  Eff. Ratio", color.new(C_GRAY, 20), C_BG2)
     dc(3, 1, "  " + str.tostring(er, "#.##") + (trending ? " ✓" : " ✗"), er_c, C_BG2)
     dc(4, 0, "  ADX", color.new(C_GRAY, 20), C_BG2)
-    dc(4, 1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? "  Strong" : "  Weak"),
-            adx_strong ? C_BULL : C_GOLD, C_BG2)
+    dc(4, 1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? "  Strong" : "  Weak"), adx_strong ? C_BULL : C_GOLD, C_BG2)
     dc(5, 0, "  Killzone", color.new(C_GRAY, 20), C_BG2)
     dc(5, 1, "  " + (in_kz ? "✓  " + kz_name : "✗  Out"), kz_c, C_BG2)
     dc(6, 0, "  RVOL", color.new(C_GRAY, 20), C_BG2)
@@ -810,11 +803,9 @@ if i_dash and barstate.islast
              (sc3_pts > 0 ? "VOL " : "") + (sc4_pts > 0 ? "CVD " : "") +
              (sc5_pts > 0 ? "MFI " : "") + (sc6_pts > 0 ? "SMC" : "")
     dc(15, 0, "  L  " + lpts_b, l_ok ? C_APEX : C_GOLD, C_BG_L)
-    dc(15, 1, "  " + str.tostring(l_onay_count) + "/6  pts:" + str.tostring(l_total_pts) + " " + lc_det,
-            l_ok ? C_APEX : color.new(C_GRAY, 20), C_BG_L)
+    dc(15, 1, "  " + str.tostring(l_onay_count) + "/6  pts:" + str.tostring(l_total_pts) + " " + lc_det, l_ok ? C_APEX : color.new(C_GRAY, 20), C_BG_L)
     dc(16, 0, "  S  " + spts_b, s_ok ? C_BEAR : C_ORANGE, C_BG_S)
-    dc(16, 1, "  " + str.tostring(s_onay_count) + "/6  pts:" + str.tostring(s_total_pts) + " " + sc_det,
-            s_ok ? C_BEAR : color.new(C_GRAY, 20), C_BG_S)
+    dc(16, 1, "  " + str.tostring(s_onay_count) + "/6  pts:" + str.tostring(s_total_pts) + " " + sc_det, s_ok ? C_BEAR : color.new(C_GRAY, 20), C_BG_S)
 
     // POSITION
     dc_c(17, 0, "── POSITION ────────", color.new(C_GRAY, 45), SEP)
@@ -824,22 +815,17 @@ if i_dash and barstate.islast
     dc(19, 0, "  Break-Even", color.new(C_GRAY, 20), C_BG_ST)
     dc(19, 1, "  " + be_t,    be_c2,                 C_BG_ST)
     dc(20, 0, "  Bugün", color.new(C_GRAY, 20), C_BG_ST)
-    dc(20, 1, "  " + str.tostring(day_cnt) + "/" + str.tostring(i_daily_max) +
-            (day_cnt >= i_daily_max ? "  LIMIT" : "  OK"),
-            day_cnt >= i_daily_max ? C_ORANGE : C_APEX, C_BG_ST)
+    dc(20, 1, "  " + str.tostring(day_cnt) + "/" + str.tostring(i_daily_max) + (day_cnt >= i_daily_max ? "  LIMIT" : "  OK"), day_cnt >= i_daily_max ? C_ORANGE : C_APEX, C_BG_ST)
 
     // STATS
     dc_c(21, 0, "── STATS ───────────", color.new(C_GRAY, 45), SEP)
     dc_c(21, 1, "────────────────────", color.new(C_GRAY, 45), SEP)
     dc(22, 0, "  Win+BE Rate", color.new(C_GRAY, 20), C_BG2)
-    dc(22, 1, "  " + str.tostring(wr_be, "#.#") + "% (W:" + str.tostring(win_c) +
-            " BE:" + str.tostring(be_c) + " L:" + str.tostring(loss_c) + ")", wr_c, C_BG2)
+    dc(22, 1, "  " + str.tostring(wr_be, "#.#") + "% (W:" + str.tostring(win_c) + " BE:" + str.tostring(be_c) + " L:" + str.tostring(loss_c) + ")", wr_c, C_BG2)
     dc(23, 0, "  Win Rate", color.new(C_GRAY, 20), C_BG2)
-    dc(23, 1, "  " + str.tostring(wr_strict, "#.#") + "% net",
-            wr_strict > 70.0 ? C_APEX : wr_strict > 55.0 ? C_GOLD : C_BEAR, C_BG2)
+    dc(23, 1, "  " + str.tostring(wr_strict, "#.#") + "% net", wr_strict > 70.0 ? C_APEX : wr_strict > 55.0 ? C_GOLD : C_BEAR, C_BG2)
     dc(24, 0, "  Avg RR", color.new(C_GRAY, 20), C_BG2)
-    dc(24, 1, "  1 : " + str.tostring(avg_rr, "#.##"),
-            avg_rr > 2.5 ? C_APEX : avg_rr > 1.5 ? C_GOLD : C_BEAR, C_BG2)
+    dc(24, 1, "  1 : " + str.tostring(avg_rr, "#.##"), avg_rr > 2.5 ? C_APEX : avg_rr > 1.5 ? C_GOLD : C_BEAR, C_BG2)
     dc(25, 0, "  Beklenti", color.new(C_GRAY, 20), C_BG2)
     dc(25, 1, "  " + str.tostring(ev, "#.##") + " R", ev_c, C_BG2)
 
