@@ -184,14 +184,9 @@ sweep_bear_any = sweep_bear or sweep_bear_strong
 
 // SSL/BSL seviyeleri mum rengi ve sweep sembolleriyle gosteriliyor
 
-plotshape(sweep_bull_strong, "PDL/50 Sweep↑", shape.diamond, location.belowbar,
-          color=color.new(C_APEX, 0), size=size.small)
-plotshape(sweep_bear_strong, "PDH/50 Sweep↓", shape.diamond, location.abovebar,
-          color=color.new(C_BEAR, 0), size=size.small)
-plotshape(sweep_bull and not sweep_bull_strong, "SSL Sweep↑", shape.diamond, location.belowbar,
-          color=color.new(C_ORANGE, 20), size=size.tiny)
-plotshape(sweep_bear and not sweep_bear_strong, "BSL Sweep↓", shape.diamond, location.abovebar,
-          color=color.new(C_ORANGE, 20), size=size.tiny)
+// Sadece guclu sweep + killzone icinde — kucuk elmas
+plotshape(sweep_bull_strong and in_kz, "◆ Sweep↑", shape.diamond, location.belowbar, color=color.new(C_APEX, 15), size=size.tiny)
+plotshape(sweep_bear_strong and in_kz, "◆ Sweep↓", shape.diamond, location.abovebar, color=color.new(C_BEAR, 15), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 5: SWING + MSS / BOS
@@ -216,14 +211,9 @@ bos_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 < s
 mss_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 < sh2 and close > open
 mss_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 > sl2 and close < open
 
-if mss_bull
-    label.new(bar_index, low - atr * 0.8, "MSS",
-         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
-         style=label.style_label_up, size=size.tiny)
-if mss_bear
-    label.new(bar_index, high + atr * 0.8, "MSS",
-         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
-         style=label.style_label_down, size=size.tiny)
+// MSS — sadece aktif setup barinда kucuk daire (her MSS degil)
+plotshape(mss_bull and ls == 1, "MSS▲", shape.circle, location.belowbar, color=color.new(C_PURPLE, 20), size=size.tiny)
+plotshape(mss_bear and ss == 1, "MSS▼", shape.circle, location.abovebar, color=color.new(C_PURPLE, 20), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 6: FVG + ORDER BLOCK + HTF FVG
@@ -564,18 +554,22 @@ plot(vwap_val, "VWAP", color.new(C_WHITE, 68), 1, plot.style_linebr)
 // ─── 4. Supertrend trail referansi ───────────────────────────────────
 plot(st_trail, "ST", st_dir_t < 0 ? color.new(C_GREEN, 58) : color.new(C_RED, 58), 1, plot.style_linebr)
 
-// ─── 5. MUM RENKLERI: tek bakista piyasa durumu ───────────────────────
-// Parlak yesil=LONG sinyal | Parlak kirmizi=SHORT | Altin=OTE kurulumu
-// Mor=sweep | Mavi=bull trend | Kirmizi=bear trend | Gri=choppy
-bar_col = av_long ? C_APEX : av_short ? C_BEAR : (ls == 3 or ls == 2) ? color.new(C_GOLD, 5) : (ss == 3 or ss == 2) ? color.new(C_ORANGE, 5) : (ls == 1 or ss == 1) ? color.new(C_PURPLE, 20) : macro_bull and trending ? color.new(C_BULL, 38) : macro_bear and trending ? color.new(C_BEAR, 38) : color.new(C_GRAY, 52)
+// ─── 5. MUM RENKLERI: sadece OTE kurulumu ve sinyal bari renkli ───────
+// Normal mumlar default (yesil/kirmizi) — ribbon trend yonunu anlatir
+// Sadece kritik setup barlari altin/turuncu, sinyal bari cok parlak
+bar_col = av_long ? C_APEX : av_short ? C_BEAR : (ls == 3 or ls == 2) ? color.new(C_GOLD, 18) : (ss == 3 or ss == 2) ? color.new(C_ORANGE, 18) : na
 barcolor(i_barcolor ? bar_col : na, title="State Barcolor")
 
-// ─── 6. DURUM ARKA PLAN BANTLARI ──────────────────────────────────────
-// Altin=OTE hazir | Turuncu=MSS teyidi | Mor=sweep alindi
-state_bg = (ls == 3 or ss == 3) ? color.new(C_GOLD, 88) : (ls == 2 or ss == 2) ? color.new(C_ORANGE, 92) : (ls == 1 or ss == 1) ? color.new(C_PURPLE, 95) : na
+// ─── 6. SINYAL FLAŞI: 3 bar parlak arka plan — kacirilmaz ────────────
+sig_fl = av_long or av_long[1] or av_long[2]
+sig_fs = av_short or av_short[1] or av_short[2]
+bgcolor(sig_fl ? color.new(C_APEX, 78) : sig_fs ? color.new(C_BEAR, 78) : na, title="Signal Flash")
+
+// ─── 7. DURUM ARKA PLAN (cok seffaf — sadece MSS/OTE zonlari) ─────────
+state_bg = (ls == 3 or ss == 3) ? color.new(C_GOLD, 95) : (ls == 2 or ss == 2) ? color.new(C_ORANGE, 96) : na
 bgcolor(i_state_bg ? state_bg : na, title="State Zone")
 
-// ─── 7. AKTIF POZISYON BANTLARI ───────────────────────────────────────
+// ─── 8. AKTIF POZISYON BANTLARI ───────────────────────────────────────
 be_color = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
 plot(trade_d != 0 ? sl_p  : na, "SL",  be_color,               2, plot.style_linebr)
 plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
@@ -584,17 +578,9 @@ plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX,  5),  3, plot.style_lin
 plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 8), 2, plot.style_linebr)
 plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 8), 2, plot.style_linebr)
 
-// ─── 8. SINYAL SEKILLERI: buyuk, net, kacirilmaz ─────────────────────
-plotshape(av_long,  "▲ LONG",  shape.triangleup,   location.belowbar, color=C_APEX, size=size.large)
-plotshape(av_short, "▼ SHORT", shape.triangledown, location.abovebar, color=C_BEAR, size=size.large)
-
-// OTE bolgesine girildi — sinyal bekleniyor (kucuk daire)
-plotshape(ls == 3 and not av_long_raw,  "◉ OTE▲", shape.circle, location.belowbar, color=color.new(C_GOLD, 10), size=size.small)
-plotshape(ss == 3 and not av_short_raw, "◉ OTE▼", shape.circle, location.abovebar, color=color.new(C_ORANGE, 10), size=size.small)
-
-// Wyckoff Spring / Upthrust
-plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar, color=color.new(C_BULL, 10), size=size.tiny)
-plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color=color.new(C_BEAR, 10), size=size.tiny)
+// ─── 9. SINYAL SEKILLERI — YILDIZ: en buyuk, en net ──────────────────
+plotshape(av_long,  "▲ LONG",  shape.triangleup,   location.belowbar, color=C_APEX, size=size.huge)
+plotshape(av_short, "▼ SHORT", shape.triangledown, location.abovebar, color=C_BEAR, size=size.huge)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
