@@ -536,15 +536,15 @@ if kapar_long or kapar_short
 //  BÖLÜM 12: GRAFİK — LUXALGO TARZΙ ÇOK KATMANLI BANT SİSTEMİ
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── 1. BANT HESABI (ATR genişlik, Supertrend yönlü renk) ────────────
-b_atr  = ta.atr(i_atr_len)
+// ─── 1. BANT HESABI (smoothed ATR, kücük carpan — scale patlamaz) ─────
+b_atr  = ta.ema(ta.atr(i_atr_len), 20)
 t_bull = st_dir_t < 0
 t_bear = st_dir_t > 0
 
-out_hi = hma_val + b_atr * 3.5
-mid_hi = hma_val + b_atr * 1.8
-mid_lo = hma_val - b_atr * 1.8
-out_lo = hma_val - b_atr * 3.5
+out_hi = hma_val + b_atr * 1.6
+mid_hi = hma_val + b_atr * 0.9
+mid_lo = hma_val - b_atr * 0.9
+out_lo = hma_val - b_atr * 1.6
 
 // ─── 2. BANT RENKLERİ (yarı şeffaf — mumlar görünür kalır) ───────────
 c_outer = t_bull ? color.new(#0d3b22, 35) : t_bear ? color.new(#3b0d0d, 35) : color.new(#0d1535, 35)
