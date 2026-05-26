@@ -359,7 +359,7 @@ s_onay_count = (sc1_pts > 0 ? 1 : 0) + (sc2_pts > 0 ? 1 : 0) + (sc3_pts > 0 ? 1 
                (sc4_pts > 0 ? 1 : 0) + (sc5_pts > 0 ? 1 : 0) + (sc6_pts > 0 ? 1 : 0)
 
 min_onay = i_mode == "APEX" ? 6 : i_mode == "SNIPER" ? 5 : 4
-min_pts  = i_mode == "APEX" ? 9 : i_mode == "SNIPER" ? 7 : 5
+min_pts  = i_mode == "APEX" ? 10 : i_mode == "SNIPER" ? 7 : 5
 
 is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
 is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
@@ -367,19 +367,21 @@ is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 9: DURUM MAKİNESİ
 // ═══════════════════════════════════════════════════════════════════════
-var int   ls        = 0
-var float l_swept   = na
-var float l_disp_top = na
-var float l_ote_hi  = na
-var float l_ote_lo  = na
-var int   l_pbar    = 0
+var int   ls            = 0
+var float l_swept       = na
+var float l_disp_top    = na
+var float l_ote_hi      = na
+var float l_ote_lo      = na
+var int   l_pbar        = 0
+var bool  l_ote_touched = false
 
-var int   ss        = 0
-var float s_swept   = na
-var float s_disp_bot = na
-var float s_ote_lo  = na
-var float s_ote_hi  = na
-var int   s_pbar    = 0
+var int   ss            = 0
+var float s_swept       = na
+var float s_disp_bot    = na
+var float s_ote_lo      = na
+var float s_ote_hi      = na
+var int   s_pbar        = 0
+var bool  s_ote_touched = false
 
 var int day_cnt  = 0
 var int last_day = 0
@@ -392,11 +394,15 @@ can_signal = day_cnt < i_daily_max
 max_wait   = i_mss_bars + i_ote_bars + 10
 
 if ls > 0 and (bar_index - l_pbar) > max_wait
-    ls := 0
+    ls            := 0
+    l_ote_touched := false
 if ss > 0 and (bar_index - s_pbar) > max_wait
-    ss := 0
+    ss            := 0
+    s_ote_touched := false
 
 // LONG geçişleri
+if ls == 0
+    l_ote_touched := false
 if ls == 0 and can_signal and sweep_bull_any and macro_bull and trending and news_filter
     ls      := 1
     l_swept := low
@@ -410,12 +416,21 @@ if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_pbar) <= i_mss_bars
     ls         := 2
     l_pbar     := bar_index
 
+// OTE Rejection: fiyat bölgeye girdi, güçlü bullish red mumu bekliyoruz
 if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
-   close >= l_ote_lo and close <= l_ote_hi and (bar_index - l_pbar) <= i_ote_bars
-    ls     := 3
-    l_pbar := bar_index
+   (bar_index - l_pbar) <= i_ote_bars
+    if low <= l_ote_hi
+        l_ote_touched := true
+    body_l = (close - open) / math.max(high - low, 0.00001)
+    if l_ote_touched and close > l_ote_hi and close > open and
+       body_l > 0.40 and rvol > 1.2
+        ls            := 3
+        l_ote_touched := false
+        l_pbar        := bar_index
 
 // SHORT geçişleri
+if ss == 0
+    s_ote_touched := false
 if ss == 0 and can_signal and sweep_bear_any and macro_bear and trending and news_filter
     ss      := 1
     s_swept := high
@@ -429,10 +444,17 @@ if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_pbar) <= i_mss_bars
     ss         := 2
     s_pbar     := bar_index
 
+// OTE Rejection: fiyat bölgeye girdi, güçlü bearish red mumu bekliyoruz
 if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
-   close >= s_ote_lo and close <= s_ote_hi and (bar_index - s_pbar) <= i_ote_bars
-    ss     := 3
-    s_pbar := bar_index
+   (bar_index - s_pbar) <= i_ote_bars
+    if high >= s_ote_lo
+        s_ote_touched := true
+    body_s = (open - close) / math.max(high - low, 0.00001)
+    if s_ote_touched and close < s_ote_lo and close < open and
+       body_s > 0.40 and rvol > 1.2
+        ss            := 3
+        s_ote_touched := false
+        s_pbar        := bar_index
 
 if i_show_ote
     if (ls == 2 or ls == 3) and not na(l_ote_lo) and not na(l_ote_hi)
