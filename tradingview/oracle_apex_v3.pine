@@ -548,9 +548,9 @@ mid_hi = hma_val + b_atr * 1.8
 mid_lo = hma_val - b_atr * 1.8
 out_lo = hma_val - b_atr * 3.5
 
-// ─── 2. BANT RENKLERİ (LuxAlgo tarzı koyu tonlar) ────────────────────
-c_outer = t_bull ? color.new(#061510, 0) : t_bear ? color.new(#150606, 0) : color.new(#060b18, 0)
-c_inner = t_bull ? color.new(#0a2b1a, 0) : t_bear ? color.new(#2b0a0a, 0) : color.new(#0a1428, 0)
+// ─── 2. BANT RENKLERİ (yarı şeffaf — mumlar görünür kalır) ───────────
+c_outer = t_bull ? color.new(#0d3b22, 35) : t_bear ? color.new(#3b0d0d, 35) : color.new(#0d1535, 35)
+c_inner = t_bull ? color.new(#1a6b3a, 20) : t_bear ? color.new(#6b1a1a, 20) : color.new(#1a2b6b, 20)
 
 // ─── 3. GİZLİ PLOT + 4 KATMAN DOLGU ─────────────────────────────────
 p_oh = plot(i_ribbon ? out_hi  : na, display=display.none)
