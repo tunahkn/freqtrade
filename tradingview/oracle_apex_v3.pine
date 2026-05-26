@@ -211,9 +211,7 @@ bos_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 < s
 mss_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 < sh2 and close > open
 mss_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 > sl2 and close < open
 
-// MSS — sadece aktif setup barinда kucuk daire (her MSS degil)
-plotshape(mss_bull and ls == 1, "MSS▲", shape.circle, location.belowbar, color=color.new(C_PURPLE, 20), size=size.tiny)
-plotshape(mss_bear and ss == 1, "MSS▼", shape.circle, location.abovebar, color=color.new(C_PURPLE, 20), size=size.tiny)
+// MSS sembolleri BÖLÜM 12'de cizilir (ls/ss durum makinesinden sonra)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 6: FVG + ORDER BLOCK + HTF FVG
@@ -581,6 +579,10 @@ plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 8), 2, plot.s
 // ─── 9. SINYAL SEKILLERI — YILDIZ: en buyuk, en net ──────────────────
 plotshape(av_long,  "▲ LONG",  shape.triangleup,   location.belowbar, color=C_APEX, size=size.huge)
 plotshape(av_short, "▼ SHORT", shape.triangledown, location.abovebar, color=C_BEAR, size=size.huge)
+
+// ─── 10. MSS onay daireleri (aktif setup sirasinda) ──────────────────
+plotshape(mss_bull and ls == 1, "MSS▲", shape.circle, location.belowbar, color=color.new(C_PURPLE, 20), size=size.tiny)
+plotshape(mss_bear and ss == 1, "MSS▼", shape.circle, location.abovebar, color=color.new(C_PURPLE, 20), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
