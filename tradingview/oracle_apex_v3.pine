@@ -536,12 +536,10 @@ if kapar_long or kapar_short
 //  BÖLÜM 12: GRAFİK — LUXALGO TARZΙ ÇOK KATMANLI BANT SİSTEMİ
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── 1. BANT HESABI (ATR tabanlı 4 katman) ───────────────────────────
-b_fast = ta.hma(close, 21)
-b_slow = ta.hma(close, 144)
+// ─── 1. BANT HESABI (ATR genişlik, Supertrend yönlü renk) ────────────
 b_atr  = ta.atr(i_atr_len)
-t_bull = b_fast > hma_val and hma_val > b_slow
-t_bear = b_fast < hma_val and hma_val < b_slow
+t_bull = st_dir_t < 0
+t_bear = st_dir_t > 0
 
 out_hi = hma_val + b_atr * 3.5
 mid_hi = hma_val + b_atr * 1.8
