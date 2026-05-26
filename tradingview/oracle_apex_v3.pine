@@ -150,8 +150,11 @@ h_utc     = hour(time, "UTC")
 m_utc     = minute(time, "UTC")
 kz_london = i_kz_lon and h_utc >= 7  and h_utc < 10
 kz_ny     = i_kz_ny  and h_utc >= 13 and h_utc < 16
-in_kz     = kz_london or kz_ny
-kz_name   = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
+// Killzone yalniz intraday'de (<= 1 saat) gecerli. 4H/Gunluk/Haftalik'ta
+// killzone kavrami yok — her bar gecerli sayilir.
+is_intraday = timeframe.in_seconds() <= 3600
+in_kz       = is_intraday ? (kz_london or kz_ny) : true
+kz_name     = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : (is_intraday ? "-" : "HTF")
 
 // NFP: Cuma 12:30 / FOMC: Çarşamba 18:00
 news_filter = not (h_utc == 12 and m_utc >= 20 and m_utc <= 45 and dayofweek == 6) and
@@ -300,28 +303,28 @@ upthrust = in_rng and high > w_hi - w_rng * 0.10 and close < w_hi - w_rng * 0.20
 //  BÖLÜM 8: 6 ONAY BİLEŞENİ (AĞIRLIKLI — max 12 puan)
 // ═══════════════════════════════════════════════════════════════════════
 
-// LONG onayları
-lc1_base = wt_bull and wt_os
-lc1_plus = (wt_xup and wt_os) or wt_bull_div
+// LONG onayları — OTE pullback girişi için tutarlı (momentum YUKARI dönüyor)
+lc1_base = wt1 > wt1[1]                            // WaveTrend yukarı dönüyor
+lc1_plus = wt_xup or wt_bull_div                   // kesişim ya da uyumsuzluk
 lc1_pts  = lc1_plus ? 2 : lc1_base ? 1 : 0
 
-lc2_base = rsi_os or rsi_bull_div
-lc2_plus = rsi_os and rsi_bull_div
+lc2_base = rsi < 55.0 and rsi > rsi[1]             // RSI dipten dönüyor, aşırı alım değil
+lc2_plus = rsi_os or rsi_bull_div
 lc2_pts  = lc2_plus ? 2 : lc2_base ? 1 : 0
 
 lc3_base = norm_vol
 lc3_plus = apex_vol
 lc3_pts  = lc3_plus ? 2 : lc3_base ? 1 : 0
 
-lc4_base = cvd_bull_div or cvd_pos
-lc4_plus = spring or (cvd_bull_div and cvd_pos)
+lc4_base = cvd_pos or cvd_r > cvd_r[1]             // CVD pozitif ya da artıyor
+lc4_plus = spring or cvd_bull_div
 lc4_pts  = lc4_plus ? 2 : lc4_base ? 1 : 0
 
-lc5_base = mfi_bull or htf_fvg_bull
-lc5_plus = mfi_bull and htf_fvg_bull
+lc5_base = mfi < 60.0                              // MFI aşırı alımda değil
+lc5_plus = mfi_bull or htf_fvg_bull
 lc5_pts  = lc5_plus ? 2 : lc5_base ? 1 : 0
 
-lc6_base = fvg_bull or ob_bull_cond
+lc6_base = fvg_bull or ob_bull_cond or close > vwap_val   // yapı ya da VWAP üstü
 lc6_plus = sweep_bull_strong or pdl_sweep
 lc6_pts  = lc6_plus ? 2 : lc6_base ? 1 : 0
 
@@ -329,28 +332,28 @@ l_total_pts  = lc1_pts + lc2_pts + lc3_pts + lc4_pts + lc5_pts + lc6_pts
 l_onay_count = (lc1_pts > 0 ? 1 : 0) + (lc2_pts > 0 ? 1 : 0) + (lc3_pts > 0 ? 1 : 0) +
                (lc4_pts > 0 ? 1 : 0) + (lc5_pts > 0 ? 1 : 0) + (lc6_pts > 0 ? 1 : 0)
 
-// SHORT onayları
-sc1_base = wt_bear and wt_ob
-sc1_plus = (wt_xdn and wt_ob) or wt_bear_div
+// SHORT onayları — OTE pullback girişi için tutarlı (momentum AŞAĞI dönüyor)
+sc1_base = wt1 < wt1[1]                            // WaveTrend aşağı dönüyor
+sc1_plus = wt_xdn or wt_bear_div
 sc1_pts  = sc1_plus ? 2 : sc1_base ? 1 : 0
 
-sc2_base = rsi_ob or rsi_bear_div
-sc2_plus = rsi_ob and rsi_bear_div
+sc2_base = rsi > 45.0 and rsi < rsi[1]             // RSI tepeden dönüyor, aşırı satım değil
+sc2_plus = rsi_ob or rsi_bear_div
 sc2_pts  = sc2_plus ? 2 : sc2_base ? 1 : 0
 
 sc3_base = norm_vol
 sc3_plus = apex_vol
 sc3_pts  = sc3_plus ? 2 : sc3_base ? 1 : 0
 
-sc4_base = cvd_bear_div or cvd_neg
-sc4_plus = upthrust or (cvd_bear_div and cvd_neg)
+sc4_base = cvd_neg or cvd_r < cvd_r[1]             // CVD negatif ya da düşüyor
+sc4_plus = upthrust or cvd_bear_div
 sc4_pts  = sc4_plus ? 2 : sc4_base ? 1 : 0
 
-sc5_base = mfi_bear or htf_fvg_bear
-sc5_plus = mfi_bear and htf_fvg_bear
+sc5_base = mfi > 40.0                              // MFI aşırı satımda değil
+sc5_plus = mfi_bear or htf_fvg_bear
 sc5_pts  = sc5_plus ? 2 : sc5_base ? 1 : 0
 
-sc6_base = fvg_bear or ob_bear_cond
+sc6_base = fvg_bear or ob_bear_cond or close < vwap_val   // yapı ya da VWAP altı
 sc6_plus = sweep_bear_strong or pdh_sweep
 sc6_pts  = sc6_plus ? 2 : sc6_base ? 1 : 0
 
