@@ -577,8 +577,8 @@ bgcolor(sig_fl ? color.new(C_APEX, 82) : sig_fs ? color.new(C_BEAR, 82) : na, ti
 barcolor(i_barcolor ? (av_long ? C_APEX : av_short ? C_BEAR : na) : na, title="Sinyal Bar")
 
 // ─── 7. AKTİF POZİSYON BANTLARI ──────────────────────────────────────
-be_c = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
-plot(trade_d != 0 ? sl_p  : na, "SL",  be_c,                   2, plot.style_linebr)
+be_ln = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
+plot(trade_d != 0 ? sl_p  : na, "SL",  be_ln,                  2, plot.style_linebr)
 plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
 plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(C_GREEN, 18), 2, plot.style_linebr)
 plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX,  5),  3, plot.style_linebr)
