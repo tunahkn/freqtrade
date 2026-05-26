@@ -74,13 +74,15 @@ i_tp3rr   = input.float(4.5, "TP3 RR — %20 trail", step=0.1, group=g5)
 i_be_auto = input.bool(true, "Break-Even: TP1'de otomatik SL'yi BE'ye çek", group=g5)
 
 g6 = "🎨 GÖRSEL"
-i_dash     = input.bool(true, "Dashboard",          group=g6)
-i_show_liq = input.bool(true, "Likidite Seviyeleri", group=g6)
-i_show_ote = input.bool(true, "OTE Bölgesi",        group=g6)
-i_show_fvg = input.bool(true, "FVG",                group=g6)
-i_show_ob  = input.bool(true, "Order Block",         group=g6)
-i_show_kz  = input.bool(true, "Killzone Rengi",      group=g6)
-i_show_pdh = input.bool(true, "PDH/PDL",             group=g6)
+i_dash     = input.bool(true,  "Dashboard",          group=g6)
+i_ribbon   = input.bool(true,  "Trend Ribbon",        group=g6)
+i_barcolor = input.bool(true,  "Mum Renklendirme",   group=g6)
+i_state_bg = input.bool(true,  "Durum Bant Rengi",   group=g6)
+i_show_pdh = input.bool(true,  "PDH/PDL Seviyeleri", group=g6)
+i_show_ote = input.bool(true,  "OTE Bölgesi",        group=g6)
+i_show_kz  = input.bool(true,  "Killzone Rengi",     group=g6)
+i_show_fvg = input.bool(false, "FVG Kutuları",       group=g6)
+i_show_ob  = input.bool(false, "Order Block",        group=g6)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 1: TEMEL GÖSTERGELER
@@ -99,8 +101,6 @@ trending = er > 0.50
 adx_strong = adx_val > 25.0
 
 vwap_val = ta.vwap(hlc3)
-ema21    = ta.ema(close, 21)
-ema55    = ta.ema(close, 55)
 
 // ── 3 Katmanlı MTF ────────────────────────────────────────────────────
 htf_w_bull  = request.security(syminfo.tickerid, i_htf_w,  hma_up, lookahead=barmerge.lookahead_off)
@@ -182,19 +182,7 @@ sweep_bear_strong = sweep_bear_pdh or sweep_bear_50
 sweep_bull_any = sweep_bull or sweep_bull_strong
 sweep_bear_any = sweep_bear or sweep_bear_strong
 
-var line ssl20_ln = na
-var line bsl20_ln = na
-var line ssl50_ln = na
-var line bsl50_ln = na
-if i_show_liq and barstate.islast
-    line.delete(ssl20_ln)
-    line.delete(bsl20_ln)
-    line.delete(ssl50_ln)
-    line.delete(bsl50_ln)
-    ssl20_ln := line.new(bar_index - i_ssl_len, ssl_20, bar_index, ssl_20, color=color.new(C_BULL, 30), style=line.style_dashed, width=1, extend=extend.right)
-    bsl20_ln := line.new(bar_index - i_ssl_len, bsl_20, bar_index, bsl_20, color=color.new(C_BEAR, 30), style=line.style_dashed, width=1, extend=extend.right)
-    ssl50_ln := line.new(bar_index - 50, ssl_50, bar_index, ssl_50, color=color.new(C_BULL, 55), style=line.style_dotted, width=2, extend=extend.right)
-    bsl50_ln := line.new(bar_index - 50, bsl_50, bar_index, bsl_50, color=color.new(C_BEAR, 55), style=line.style_dotted, width=2, extend=extend.right)
+// SSL/BSL seviyeleri mum rengi ve sweep sembolleriyle gosteriliyor
 
 plotshape(sweep_bull_strong, "PDL/50 Sweep↑", shape.diamond, location.belowbar,
           color=color.new(C_APEX, 0), size=size.small)
@@ -557,25 +545,56 @@ if kapar_long or kapar_short
     tp1_hit := false
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 12: GRAFİK ÇİZGİLERİ
+//  BÖLÜM 12: GRAFİK — RİBBON + RENK SİSTEMİ
 // ═══════════════════════════════════════════════════════════════════════
-plot(hma_val,  "HMA",  hma_up ? color.new(C_BULL, 15) : color.new(C_BEAR, 15), 2)
-plot(ema21,    "E21",  color.new(C_BULL, 68), 1)
-plot(ema55,    "E55",  color.new(C_BEAR, 68), 1)
-plot(vwap_val, "VWAP", color.new(C_WHITE, 40), 2)
-plot(st_trail, "ST",   st_dir_t < 0 ? color.new(C_GREEN, 30) : color.new(C_RED, 30), 1, plot.style_linebr)
 
-be_color = be_hit ? color.new(C_GOLD, 15) : color.new(C_RED, 10)
+// ─── 1. TREND RİBBONU: HMA21 / HMA55 arasi dolu bant ─────────────────
+ribbon_fast = ta.hma(close, 21)
+ribbon_bull = ribbon_fast > hma_val
+p_rhi = plot(i_ribbon ? ribbon_fast : na, "Ribbon+", display=display.none)
+p_rlo = plot(i_ribbon ? hma_val     : na, "Ribbon-", display=display.none)
+fill(p_rhi, p_rlo, i_ribbon ? (ribbon_bull ? color.new(C_BULL, 62) : color.new(C_BEAR, 62)) : na, title="Trend Ribbon")
+
+// ─── 2. HMA ana cizgisi (tek referans) ───────────────────────────────
+plot(hma_val, "HMA", hma_up ? color.new(C_BULL, 10) : color.new(C_BEAR, 10), 2)
+
+// ─── 3. VWAP kurumsal referans (cok ince) ────────────────────────────
+plot(vwap_val, "VWAP", color.new(C_WHITE, 68), 1, plot.style_linebr)
+
+// ─── 4. Supertrend trail referansi ───────────────────────────────────
+plot(st_trail, "ST", st_dir_t < 0 ? color.new(C_GREEN, 58) : color.new(C_RED, 58), 1, plot.style_linebr)
+
+// ─── 5. MUM RENKLERI: tek bakista piyasa durumu ───────────────────────
+// Parlak yesil=LONG sinyal | Parlak kirmizi=SHORT | Altin=OTE kurulumu
+// Mor=sweep | Mavi=bull trend | Kirmizi=bear trend | Gri=choppy
+bar_col = av_long ? C_APEX : av_short ? C_BEAR : (ls == 3 or ls == 2) ? color.new(C_GOLD, 5) : (ss == 3 or ss == 2) ? color.new(C_ORANGE, 5) : (ls == 1 or ss == 1) ? color.new(C_PURPLE, 20) : macro_bull and trending ? color.new(C_BULL, 38) : macro_bear and trending ? color.new(C_BEAR, 38) : color.new(C_GRAY, 52)
+barcolor(i_barcolor ? bar_col : na, title="State Barcolor")
+
+// ─── 6. DURUM ARKA PLAN BANTLARI ──────────────────────────────────────
+// Altin=OTE hazir | Turuncu=MSS teyidi | Mor=sweep alindi
+state_bg = (ls == 3 or ss == 3) ? color.new(C_GOLD, 88) : (ls == 2 or ss == 2) ? color.new(C_ORANGE, 92) : (ls == 1 or ss == 1) ? color.new(C_PURPLE, 95) : na
+bgcolor(i_state_bg ? state_bg : na, title="State Zone")
+
+// ─── 7. AKTIF POZISYON BANTLARI ───────────────────────────────────────
+be_color = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
 plot(trade_d != 0 ? sl_p  : na, "SL",  be_color,               2, plot.style_linebr)
-plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 50), 1, plot.style_linebr)
-plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(C_GREEN, 25), 1, plot.style_linebr)
-plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX, 10),  2, plot.style_linebr)
+plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
+plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(C_GREEN, 18), 2, plot.style_linebr)
+plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX,  5),  3, plot.style_linebr)
+plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 8), 2, plot.style_linebr)
+plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 8), 2, plot.style_linebr)
 
-plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 15), 2, plot.style_linebr)
-plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 15), 2, plot.style_linebr)
+// ─── 8. SINYAL SEKILLERI: buyuk, net, kacirilmaz ─────────────────────
+plotshape(av_long,  "▲ LONG",  shape.triangleup,   location.belowbar, color=C_APEX, size=size.large)
+plotshape(av_short, "▼ SHORT", shape.triangledown, location.abovebar, color=C_BEAR, size=size.large)
 
-plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar, color=color.new(C_BULL, 0), size=size.tiny)
-plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color=color.new(C_BEAR, 0), size=size.tiny)
+// OTE bolgesine girildi — sinyal bekleniyor (kucuk daire)
+plotshape(ls == 3 and not av_long_raw,  "◉ OTE▲", shape.circle, location.belowbar, color=color.new(C_GOLD, 10), size=size.small)
+plotshape(ss == 3 and not av_short_raw, "◉ OTE▼", shape.circle, location.abovebar, color=color.new(C_ORANGE, 10), size=size.small)
+
+// Wyckoff Spring / Upthrust
+plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar, color=color.new(C_BULL, 10), size=size.tiny)
+plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar, color=color.new(C_BEAR, 10), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
