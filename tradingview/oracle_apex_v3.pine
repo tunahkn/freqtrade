@@ -31,7 +31,7 @@ C_SEP    = #141e35
 
 // ── INPUTS ──────────────────────────────────────────────────────────
 g0 = "🎯 GENEL"
-i_mode      = input.string("APEX", "Mod",
+i_mode      = input.string("SNIPER", "Mod",
               options=["APEX","SNIPER","PRECISION"], group=g0,
               tooltip="APEX=6/6 onay zorunlu | SNIPER=5/6 | PRECISION=4/6")
 i_lev       = input.float(10,  "Kaldıraç (x)", 1, 125, 0.5, group=g0)
@@ -48,8 +48,10 @@ i_er_len  = input.int(21, "Efficiency Ratio", group=g1)
 g2 = "🏦 SMC / LİKİDİTE"
 i_ssl_len  = input.int(20, "SSL/BSL Pencere", group=g2)
 i_swing    = input.int(8,  "Swing Uzunluk",   group=g2)
-i_mss_bars = input.int(15, "MSS Bekleme (bar)", group=g2)
-i_ote_bars = input.int(30, "OTE Bekleme (bar)", group=g2)
+i_mss_bars  = input.int(15,  "MSS Bekleme (bar)",  group=g2)
+i_ote_bars  = input.int(30,  "OTE Bekleme (bar)",  group=g2)
+i_ote_rvol  = input.float(0.8, "OTE Min RVOL", 0.3, 3.0, 0.1, group=g2,
+              tooltip="OTE rejection mumunda gereken min RVOL. 0.8=gevşek, 1.5=sıkı")
 i_pdh_len  = input.int(1,  "PDH/PDL (gün geriye)", 1, 5, group=g2,
              tooltip="Previous Day High/Low — en güçlü likidite seviyesi")
 
@@ -428,7 +430,7 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
         l_ote_touched := true
     body_l = (close - open) / math.max(high - low, 0.00001)
     if l_ote_touched and close > l_ote_hi and close > open and
-       body_l > 0.40 and rvol > 1.2
+       body_l > 0.40 and rvol >= i_ote_rvol
         ls            := 3
         l_ote_touched := false
         l_pbar        := bar_index
@@ -457,7 +459,7 @@ if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
         s_ote_touched := true
     body_s = (open - close) / math.max(high - low, 0.00001)
     if s_ote_touched and close < s_ote_lo and close < open and
-       body_s > 0.40 and rvol > 1.2
+       body_s > 0.40 and rvol >= i_ote_rvol
         ss            := 3
         s_ote_touched := false
         s_pbar        := bar_index
@@ -748,8 +750,8 @@ var int   max_w   = 0
 if av_long or av_short
     tot += 1
 
-if kapar_long and not na(entry_p) and not na(sl_p)
-    rr_l = (close - entry_p) / math.max(entry_p - sl_p, 0.00001)
+if kapar_long and not na(entry_p) and not na(sl_original)
+    rr_l = (close - entry_p) / math.max(entry_p - sl_original, 0.00001)
     if rr_l > 0.05
         win_c  += 1
         cur_w  += 1
@@ -762,8 +764,8 @@ if kapar_long and not na(entry_p) and not na(sl_p)
         loss_c += 1
         cur_w  := 0
 
-if kapar_short and not na(entry_p) and not na(sl_p)
-    rr_s = (entry_p - close) / math.max(sl_p - entry_p, 0.00001)
+if kapar_short and not na(entry_p) and not na(sl_original)
+    rr_s = (entry_p - close) / math.max(sl_original - entry_p, 0.00001)
     if rr_s > 0.05
         win_c  += 1
         cur_w  += 1
