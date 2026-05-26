@@ -150,10 +150,11 @@ h_utc     = hour(time, "UTC")
 m_utc     = minute(time, "UTC")
 kz_london = i_kz_lon and h_utc >= 7  and h_utc < 10
 kz_ny     = i_kz_ny  and h_utc >= 13 and h_utc < 16
-// Killzone yalniz intraday'de (<= 1 saat) gecerli. 4H/Gunluk/Haftalik'ta
-// killzone kavrami yok — her bar gecerli sayilir.
+// Killzone yalniz intraday'de (<= 1 saat) gecerli. HTF'de ya da her iki
+// killzone kapaliysa filtre devre disi (in_kz=true).
 is_intraday = timeframe.in_seconds() <= 3600
-in_kz       = is_intraday ? (kz_london or kz_ny) : true
+kz_any_on   = i_kz_lon or i_kz_ny
+in_kz       = (not is_intraday) or (not kz_any_on) or kz_london or kz_ny
 kz_name     = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : (is_intraday ? "-" : "HTF")
 
 // NFP: Cuma 12:30 / FOMC: Çarşamba 18:00
@@ -406,7 +407,8 @@ if ss > 0 and (bar_index - s_pbar) > max_wait
 // LONG geçişleri
 if ls == 0
     l_ote_touched := false
-if ls == 0 and can_signal and sweep_bull_any and macro_bull and trending and news_filter
+// Trend yönü filtresi: LONG sadece 3 HTF birden düşüşteyse engellenir
+if ls == 0 and can_signal and sweep_bull_any and not macro_bear_apex and news_filter
     ls      := 1
     l_swept := low
     l_pbar  := bar_index
@@ -434,7 +436,8 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
 // SHORT geçişleri
 if ss == 0
     s_ote_touched := false
-if ss == 0 and can_signal and sweep_bear_any and macro_bear and trending and news_filter
+// Trend yönü filtresi: SHORT sadece 3 HTF birden yükselişteyse engellenir
+if ss == 0 and can_signal and sweep_bear_any and not macro_bull_apex and news_filter
     ss      := 1
     s_swept := high
     s_pbar  := bar_index
