@@ -362,7 +362,7 @@ s_onay_count = (sc1_pts > 0 ? 1 : 0) + (sc2_pts > 0 ? 1 : 0) + (sc3_pts > 0 ? 1 
                (sc4_pts > 0 ? 1 : 0) + (sc5_pts > 0 ? 1 : 0) + (sc6_pts > 0 ? 1 : 0)
 
 min_onay = i_mode == "APEX" ? 6 : i_mode == "SNIPER" ? 5 : 4
-min_pts  = i_mode == "APEX" ? 10 : i_mode == "SNIPER" ? 7 : 5
+min_pts  = i_mode == "APEX" ? 8 : i_mode == "SNIPER" ? 6 : 5
 
 is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
 is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
@@ -472,10 +472,12 @@ if i_show_ote
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 10: SİNYAL ÜRETİMİ
 // ═══════════════════════════════════════════════════════════════════════
-av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and
-               in_kz and macro_bull and trending and can_signal and news_filter
-av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and
-               in_kz and macro_bear and trending and can_signal and news_filter
+// NOT: in_kz / macro_bull / trending / news_filter setup BAŞLARKEN (ls 0->1)
+// zaten kontrol edildi. OTE rejection sweep'ten 20-40 bar SONRA olur — o anda
+// killzone geçmiş olur. O yüzden burada tekrar şart koşmuyoruz, yoksa sinyal
+// hiçbir zaman tetiklenmez. Tetikleyici = OTE rejection + onaylar + günlük limit.
+av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal
+av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal
 
 av_long  = av_long_raw  and not av_long_raw[1]
 av_short = av_short_raw and not av_short_raw[1]
