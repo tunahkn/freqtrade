@@ -533,56 +533,83 @@ if kapar_long or kapar_short
     tp1_hit := false
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 12: GRAFİK — RİBBON + RENK SİSTEMİ
+//  BÖLÜM 12: GRAFİK — LUXALGO TARZΙ ÇOK KATMANLI BANT SİSTEMİ
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── 1. TREND RİBBONU: HMA21 / HMA55 arasi dolu bant ─────────────────
-ribbon_fast = ta.hma(close, 21)
-ribbon_bull = ribbon_fast > hma_val
-p_rhi = plot(i_ribbon ? ribbon_fast : na, "Ribbon+", display=display.none)
-p_rlo = plot(i_ribbon ? hma_val     : na, "Ribbon-", display=display.none)
-fill(p_rhi, p_rlo, i_ribbon ? (ribbon_bull ? color.new(C_BULL, 62) : color.new(C_BEAR, 62)) : na, title="Trend Ribbon")
+// ─── 1. BANT HESABI (ATR tabanlı 4 katman) ───────────────────────────
+b_fast = ta.hma(close, 21)
+b_slow = ta.hma(close, 144)
+b_atr  = ta.atr(i_atr_len)
+t_bull = b_fast > hma_val and hma_val > b_slow
+t_bear = b_fast < hma_val and hma_val < b_slow
 
-// ─── 2. HMA ana cizgisi (tek referans) ───────────────────────────────
-plot(hma_val, "HMA", hma_up ? color.new(C_BULL, 10) : color.new(C_BEAR, 10), 2)
+out_hi = hma_val + b_atr * 3.5
+mid_hi = hma_val + b_atr * 1.8
+mid_lo = hma_val - b_atr * 1.8
+out_lo = hma_val - b_atr * 3.5
 
-// ─── 3. VWAP kurumsal referans (cok ince) ────────────────────────────
-plot(vwap_val, "VWAP", color.new(C_WHITE, 68), 1, plot.style_linebr)
+// ─── 2. BANT RENKLERİ (LuxAlgo tarzı koyu tonlar) ────────────────────
+c_outer = t_bull ? color.new(#061510, 0) : t_bear ? color.new(#150606, 0) : color.new(#060b18, 0)
+c_inner = t_bull ? color.new(#0a2b1a, 0) : t_bear ? color.new(#2b0a0a, 0) : color.new(#0a1428, 0)
 
-// ─── 4. Supertrend trail referansi ───────────────────────────────────
-plot(st_trail, "ST", st_dir_t < 0 ? color.new(C_GREEN, 58) : color.new(C_RED, 58), 1, plot.style_linebr)
+// ─── 3. GİZLİ PLOT + 4 KATMAN DOLGU ─────────────────────────────────
+p_oh = plot(i_ribbon ? out_hi  : na, display=display.none)
+p_mh = plot(i_ribbon ? mid_hi  : na, display=display.none)
+p_bs = plot(i_ribbon ? hma_val : na, display=display.none)
+p_ml = plot(i_ribbon ? mid_lo  : na, display=display.none)
+p_ol = plot(i_ribbon ? out_lo  : na, display=display.none)
+fill(p_oh, p_mh, c_outer, title="Dış Üst Bant")
+fill(p_mh, p_bs, c_inner, title="İç Üst Bant")
+fill(p_bs, p_ml, c_inner, title="İç Alt Bant")
+fill(p_ml, p_ol, c_outer, title="Dış Alt Bant")
 
-// ─── 5. MUM RENKLERI: sadece OTE kurulumu ve sinyal bari renkli ───────
-// Normal mumlar default (yesil/kirmizi) — ribbon trend yonunu anlatir
-// Sadece kritik setup barlari altin/turuncu, sinyal bari cok parlak
-bar_col = av_long ? C_APEX : av_short ? C_BEAR : (ls == 3 or ls == 2) ? color.new(C_GOLD, 18) : (ss == 3 or ss == 2) ? color.new(C_ORANGE, 18) : na
-barcolor(i_barcolor ? bar_col : na, title="State Barcolor")
+// ─── 4. TREND ÇİZGİSİ + VWAP ─────────────────────────────────────────
+t_col = t_bull ? color.new(#00e676, 10) : t_bear ? color.new(#ff1744, 10) : color.new(#5c7cfa, 20)
+plot(hma_val,  "Trend", t_col, 2)
+plot(vwap_val, "VWAP",  color.new(C_WHITE, 72), 1, plot.style_linebr)
 
-// ─── 6. SINYAL FLAŞI: 3 bar parlak arka plan — kacirilmaz ────────────
+// ─── 5. SINYAL FLAŞI (3 bar) ─────────────────────────────────────────
 sig_fl = av_long or av_long[1] or av_long[2]
 sig_fs = av_short or av_short[1] or av_short[2]
-bgcolor(sig_fl ? color.new(C_APEX, 78) : sig_fs ? color.new(C_BEAR, 78) : na, title="Signal Flash")
+bgcolor(sig_fl ? color.new(C_APEX, 82) : sig_fs ? color.new(C_BEAR, 82) : na, title="Signal Flash")
 
-// ─── 7. DURUM ARKA PLAN (cok seffaf — sadece MSS/OTE zonlari) ─────────
-state_bg = (ls == 3 or ss == 3) ? color.new(C_GOLD, 95) : (ls == 2 or ss == 2) ? color.new(C_ORANGE, 96) : na
-bgcolor(i_state_bg ? state_bg : na, title="State Zone")
+// ─── 6. MUM RENKLENDİRME (sadece sinyal barı) ────────────────────────
+barcolor(i_barcolor ? (av_long ? C_APEX : av_short ? C_BEAR : na) : na, title="Sinyal Bar")
 
-// ─── 8. AKTIF POZISYON BANTLARI ───────────────────────────────────────
-be_color = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
-plot(trade_d != 0 ? sl_p  : na, "SL",  be_color,               2, plot.style_linebr)
+// ─── 7. AKTİF POZİSYON BANTLARI ──────────────────────────────────────
+be_c = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
+plot(trade_d != 0 ? sl_p  : na, "SL",  be_c,                   2, plot.style_linebr)
 plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
 plot(trade_d != 0 ? tp2_p : na, "TP2", color.new(C_GREEN, 18), 2, plot.style_linebr)
 plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX,  5),  3, plot.style_linebr)
 plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 8), 2, plot.style_linebr)
 plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 8), 2, plot.style_linebr)
 
-// ─── 9. SINYAL SEKILLERI — YILDIZ: en buyuk, en net ──────────────────
-plotshape(av_long,  "▲ LONG",  shape.triangleup,   location.belowbar, color=C_APEX, size=size.huge)
-plotshape(av_short, "▼ SHORT", shape.triangledown, location.abovebar, color=C_BEAR, size=size.huge)
+// ─── 8. SİNYAL ŞEKİLLERİ (LuxAlgo tarzı: APEX=A+, SNIPER=ok) ────────
+plotshape(av_long  and     is_apex_grade_l, "APEX LONG",
+          shape.triangleup, location.belowbar,
+          color=C_APEX, text="A+", textcolor=color.white, size=size.normal)
+plotshape(av_long  and not is_apex_grade_l, "LONG",
+          shape.triangleup, location.belowbar,
+          color=C_GREEN, text="L", textcolor=color.white, size=size.small)
+plotshape(av_short and     is_apex_grade_s, "APEX SHORT",
+          shape.triangledown, location.abovebar,
+          color=C_BEAR, text="A+", textcolor=color.white, size=size.normal)
+plotshape(av_short and not is_apex_grade_s, "SHORT",
+          shape.triangledown, location.abovebar,
+          color=C_RED, text="S", textcolor=color.white, size=size.small)
 
-// ─── 10. MSS onay daireleri (aktif setup sirasinda) ──────────────────
-plotshape(mss_bull and ls == 1, "MSS▲", shape.circle, location.belowbar, color=color.new(C_PURPLE, 20), size=size.tiny)
-plotshape(mss_bear and ss == 1, "MSS▼", shape.circle, location.abovebar, color=color.new(C_PURPLE, 20), size=size.tiny)
+// ─── 9. EXIT işaretçileri (LuxAlgo × tarzı) ──────────────────────────
+plotshape(kapar_long,  "× EXIT L", shape.xcross, location.abovebar,
+          color=color.new(C_GOLD, 15), size=size.small)
+plotshape(kapar_short, "× EXIT S", shape.xcross, location.belowbar,
+          color=color.new(C_GOLD, 15), size=size.small)
+
+// ─── 10. MSS onay daireleri (aktif setup, ls/ss sonrasi) ─────────────
+plotshape(mss_bull and ls == 1, "MSS▲", shape.circle, location.belowbar,
+          color=color.new(C_PURPLE, 30), size=size.tiny)
+plotshape(mss_bear and ss == 1, "MSS▼", shape.circle, location.abovebar,
+          color=color.new(C_PURPLE, 30), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 13: YARDIMCI FONKSİYONLAR (global scope)
