@@ -536,45 +536,37 @@ if kapar_long or kapar_short
 //  BÖLÜM 12: GRAFİK — LUXALGO TARZΙ ÇOK KATMANLI BANT SİSTEMİ
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── 1. BANT HESABI (smoothed ATR, kücük carpan — scale patlamaz) ─────
-b_atr  = ta.ema(ta.atr(i_atr_len), 20)
-t_bull = st_dir_t < 0
-t_bear = st_dir_t > 0
+// ─── 1. TREND RIBBON (HMA21-HMA55 — fiyata yapışık, scale sorunu yok) ─
+ribbon_hi = ta.hma(close, 21)
+t_bull    = st_dir_t < 0
+t_bear    = st_dir_t > 0
 
-out_hi = hma_val + b_atr * 1.6
-mid_hi = hma_val + b_atr * 0.9
-mid_lo = hma_val - b_atr * 0.9
-out_lo = hma_val - b_atr * 1.6
+p_rhi = plot(i_ribbon ? ribbon_hi : na, "R+", display=display.none)
+p_rlo = plot(i_ribbon ? hma_val   : na, "R-", display=display.none)
+fill(p_rhi, p_rlo,
+     i_ribbon ? (t_bull ? color.new(#00c853, 52) : color.new(#d50000, 52)) : na,
+     title="Trend Ribbon")
 
-// ─── 2. BANT RENKLERİ (yarı şeffaf — mumlar görünür kalır) ───────────
-c_outer = t_bull ? color.new(#0d3b22, 35) : t_bear ? color.new(#3b0d0d, 35) : color.new(#0d1535, 35)
-c_inner = t_bull ? color.new(#1a6b3a, 20) : t_bear ? color.new(#6b1a1a, 20) : color.new(#1a2b6b, 20)
+// ─── 2. TREND ARKA PLAN (bgcolor — scale'i asla etkile mez) ───────────
+bgcolor(i_ribbon and t_bull ? color.new(#00c853, 93) : na, title="Bull Zone")
+bgcolor(i_ribbon and t_bear ? color.new(#d50000, 93) : na, title="Bear Zone")
 
-// ─── 3. GİZLİ PLOT + 4 KATMAN DOLGU ─────────────────────────────────
-p_oh = plot(i_ribbon ? out_hi  : na, display=display.none)
-p_mh = plot(i_ribbon ? mid_hi  : na, display=display.none)
-p_bs = plot(i_ribbon ? hma_val : na, display=display.none)
-p_ml = plot(i_ribbon ? mid_lo  : na, display=display.none)
-p_ol = plot(i_ribbon ? out_lo  : na, display=display.none)
-fill(p_oh, p_mh, c_outer, title="Dış Üst Bant")
-fill(p_mh, p_bs, c_inner, title="İç Üst Bant")
-fill(p_bs, p_ml, c_inner, title="İç Alt Bant")
-fill(p_ml, p_ol, c_outer, title="Dış Alt Bant")
-
-// ─── 4. TREND ÇİZGİSİ + VWAP ─────────────────────────────────────────
-t_col = t_bull ? color.new(#00e676, 10) : t_bear ? color.new(#ff1744, 10) : color.new(#5c7cfa, 20)
+// ─── 3. HMA TREND ÇİZGİSİ + VWAP ─────────────────────────────────────
+t_col = t_bull ? color.new(#00e676, 10) : color.new(#ff1744, 10)
 plot(hma_val,  "Trend", t_col, 2)
 plot(vwap_val, "VWAP",  color.new(C_WHITE, 72), 1, plot.style_linebr)
 
-// ─── 5. SINYAL FLAŞI (3 bar) ─────────────────────────────────────────
+// ─── 4. SINYAL FLAŞI (3 bar) ─────────────────────────────────────────
 sig_fl = av_long or av_long[1] or av_long[2]
 sig_fs = av_short or av_short[1] or av_short[2]
-bgcolor(sig_fl ? color.new(C_APEX, 82) : sig_fs ? color.new(C_BEAR, 82) : na, title="Signal Flash")
+bgcolor(sig_fl ? color.new(C_APEX, 82) : sig_fs ? color.new(C_BEAR, 82) : na,
+        title="Signal Flash")
 
-// ─── 6. MUM RENKLENDİRME (sadece sinyal barı) ────────────────────────
-barcolor(i_barcolor ? (av_long ? C_APEX : av_short ? C_BEAR : na) : na, title="Sinyal Bar")
+// ─── 5. MUM RENKLENDİRME ─────────────────────────────────────────────
+barcolor(i_barcolor ? (av_long ? C_APEX : av_short ? C_BEAR : na) : na,
+         title="Sinyal Bar")
 
-// ─── 7. AKTİF POZİSYON BANTLARI ──────────────────────────────────────
+// ─── 6. AKTİF POZİSYON BANTLARI ──────────────────────────────────────
 be_ln = be_hit ? color.new(C_GOLD, 8) : color.new(C_RED, 8)
 plot(trade_d != 0 ? sl_p  : na, "SL",  be_ln,                  2, plot.style_linebr)
 plot(trade_d != 0 ? tp1_p : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
@@ -583,7 +575,7 @@ plot(trade_d != 0 ? tp3_p : na, "TP3", color.new(C_APEX,  5),  3, plot.style_lin
 plot(trail_active_l ? st_trail : na, "Trail↑", color.new(C_GOLD, 8), 2, plot.style_linebr)
 plot(trail_active_s ? st_trail : na, "Trail↓", color.new(C_GOLD, 8), 2, plot.style_linebr)
 
-// ─── 8. SİNYAL ŞEKİLLERİ (LuxAlgo tarzı: APEX=A+, SNIPER=ok) ────────
+// ─── 7. SİNYAL ŞEKİLLERİ ─────────────────────────────────────────────
 plotshape(av_long  and     is_apex_grade_l, "APEX LONG",
           shape.triangleup, location.belowbar,
           color=C_APEX, text="A+", textcolor=color.white, size=size.normal)
