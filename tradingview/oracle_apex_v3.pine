@@ -56,8 +56,10 @@ i_pdh_len  = input.int(1,  "PDH/PDL (gün geriye)", 1, 5, group=g2,
              tooltip="Previous Day High/Low — en güçlü likidite seviyesi")
 
 g3 = "🕐 KILLZONE (UTC)"
-i_kz_lon = input.bool(true, "London 07:00–10:00", group=g3)
-i_kz_ny  = input.bool(true, "NY Open 13:00–16:00", group=g3)
+i_kz_lon    = input.bool(true,  "London 07:00–10:00",  group=g3)
+i_kz_ny     = input.bool(true,  "NY Open 13:00–16:00", group=g3)
+i_kz_strict = input.bool(false, "Killzone Zorunlu (sweep'i kilitler)", group=g3,
+              tooltip="KAPALI=killzone sadece bilgi/bonus, sinyal her saat çıkabilir | AÇIK=sweep yalnız killzone içinde")
 
 g4 = "⚡ FİLTRELER"
 i_wt_n1     = input.int(10,  "WT Channel",     group=g4)
@@ -158,6 +160,9 @@ is_intraday = timeframe.in_seconds() <= 3600
 kz_any_on   = i_kz_lon or i_kz_ny
 in_kz       = (not is_intraday) or (not kz_any_on) or kz_london or kz_ny
 kz_name     = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : (is_intraday ? "-" : "HTF")
+// Sweep kapısı: strict modda killzone zorunlu, değilse her zaman serbest.
+// Killzone yine dashboard'da gösterilir + onay bonusu olarak sayılır.
+kz_gate     = i_kz_strict ? in_kz : true
 
 // NFP: Cuma 12:30 / FOMC: Çarşamba 18:00
 news_filter = not (h_utc == 12 and m_utc >= 20 and m_utc <= 45 and dayofweek == 6) and
@@ -174,13 +179,13 @@ bsl_20 = ta.highest(high[1], i_ssl_len)
 ssl_50 = ta.lowest(low[1],   50)
 bsl_50 = ta.highest(high[1], 50)
 
-sweep_bull    = low  < ssl_20 and close > ssl_20 and close > open and in_kz
-sweep_bear    = high > bsl_20 and close < bsl_20 and close < open and in_kz
-sweep_bull_50 = low  < ssl_50 and close > ssl_50 and close > open and in_kz
-sweep_bear_50 = high > bsl_50 and close < bsl_50 and close < open and in_kz
+sweep_bull    = low  < ssl_20 and close > ssl_20 and close > open and kz_gate
+sweep_bear    = high > bsl_20 and close < bsl_20 and close < open and kz_gate
+sweep_bull_50 = low  < ssl_50 and close > ssl_50 and close > open and kz_gate
+sweep_bear_50 = high > bsl_50 and close < bsl_50 and close < open and kz_gate
 
-sweep_bull_pdl = pdl_sweep and in_kz
-sweep_bear_pdh = pdh_sweep and in_kz
+sweep_bull_pdl = pdl_sweep and kz_gate
+sweep_bear_pdh = pdh_sweep and kz_gate
 
 sweep_bull_strong = sweep_bull_pdl or sweep_bull_50
 sweep_bear_strong = sweep_bear_pdh or sweep_bear_50
@@ -191,8 +196,8 @@ sweep_bear_any = sweep_bear or sweep_bear_strong
 // SSL/BSL seviyeleri mum rengi ve sweep sembolleriyle gosteriliyor
 
 // Sadece guclu sweep + killzone icinde — kucuk elmas
-plotshape(sweep_bull_strong and in_kz, "◆ Sweep↑", shape.diamond, location.belowbar, color=color.new(C_APEX, 15), size=size.tiny)
-plotshape(sweep_bear_strong and in_kz, "◆ Sweep↓", shape.diamond, location.abovebar, color=color.new(C_BEAR, 15), size=size.tiny)
+plotshape(sweep_bull_strong, "◆ Sweep↑", shape.diamond, location.belowbar, color=color.new(C_APEX, 15), size=size.tiny)
+plotshape(sweep_bear_strong, "◆ Sweep↓", shape.diamond, location.abovebar, color=color.new(C_BEAR, 15), size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 5: SWING + MSS / BOS
@@ -423,14 +428,19 @@ if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_pbar) <= i_mss_bars
     ls         := 2
     l_pbar     := bar_index
 
-// OTE Rejection: fiyat bölgeye girdi, güçlü bullish red mumu bekliyoruz
+// State 2 → 3: iki yol var.
+//  A) OTE Rejection — fiyat 61.8-78.6 bölgesine girdi, güçlü bullish red mumu
+//  B) Momentum — pullback olmadan MSS tepesini kıran güçlü süreklilik mumu
 if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
    (bar_index - l_pbar) <= i_ote_bars
     if low <= l_ote_hi
         l_ote_touched := true
-    body_l = (close - open) / math.max(high - low, 0.00001)
-    if l_ote_touched and close > l_ote_hi and close > open and
-       body_l > 0.40 and rvol >= i_ote_rvol
+    body_l       = (close - open) / math.max(high - low, 0.00001)
+    ote_reject_l = l_ote_touched and close > l_ote_hi and close > open and
+                   body_l > 0.40 and rvol >= i_ote_rvol
+    momentum_l   = close > open and body_l > 0.50 and
+                   close > nz(l_disp_top, close) and rvol >= i_ote_rvol
+    if ote_reject_l or momentum_l
         ls            := 3
         l_ote_touched := false
         l_pbar        := bar_index
@@ -452,14 +462,19 @@ if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_pbar) <= i_mss_bars
     ss         := 2
     s_pbar     := bar_index
 
-// OTE Rejection: fiyat bölgeye girdi, güçlü bearish red mumu bekliyoruz
+// State 2 → 3: iki yol var.
+//  A) OTE Rejection — fiyat 61.8-78.6 bölgesine girdi, güçlü bearish red mumu
+//  B) Momentum — pullback olmadan MSS dibini kıran güçlü süreklilik mumu
 if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
    (bar_index - s_pbar) <= i_ote_bars
     if high >= s_ote_lo
         s_ote_touched := true
-    body_s = (open - close) / math.max(high - low, 0.00001)
-    if s_ote_touched and close < s_ote_lo and close < open and
-       body_s > 0.40 and rvol >= i_ote_rvol
+    body_s       = (open - close) / math.max(high - low, 0.00001)
+    ote_reject_s = s_ote_touched and close < s_ote_lo and close < open and
+                   body_s > 0.40 and rvol >= i_ote_rvol
+    momentum_s   = close < open and body_s > 0.50 and
+                   close < nz(s_disp_bot, close) and rvol >= i_ote_rvol
+    if ote_reject_s or momentum_s
         ss            := 3
         s_ote_touched := false
         s_pbar        := bar_index
