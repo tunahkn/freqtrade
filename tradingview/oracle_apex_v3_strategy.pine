@@ -1,0 +1,565 @@
+//@version=6
+strategy("ORACLE APEX v3.0 STRATEJI", overlay=true, max_labels_count=200, max_lines_count=400, max_boxes_count=300, max_bars_back=5000, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=true, calc_on_every_tick=false, pyramiding=0)
+
+// RENKLER
+C_BULL   = #00e5ff
+C_BEAR   = #ff1744
+C_GOLD   = #ffd600
+C_APEX   = #76ff03
+C_GREEN  = #00c853
+C_RED    = #d50000
+C_PURPLE = #d500f9
+C_ORANGE = #ff6d00
+C_GRAY   = #546e7a
+C_WHITE  = #eceff1
+C_HDR    = #050d2e
+C_BG     = #07091a
+C_BG2    = #0d1120
+C_BG_L   = #031508
+C_BG_S   = #150303
+C_BG_ST  = #080d20
+C_SEP    = #141e35
+
+// INPUTS
+g0 = "GENEL"
+i_mode      = input.string("PRECISION", "Mod", options=["APEX","SNIPER","PRECISION"], group=g0)
+i_lev       = input.float(10.0, "Kaldirac x", 1, 125, 0.5, group=g0)
+i_risk      = input.float(1.0,  "Risk %", 0.1, 5, 0.1, group=g0)
+i_daily_max = input.int(2, "Gunluk Max Sinyal", 1, 5, group=g0)
+
+g1 = "TREND MTF"
+i_htf_w  = input.string("W",   "HTF 1", options=["W","D"],    group=g1)
+i_htf_d  = input.string("D",   "HTF 2", options=["D","240"],  group=g1)
+i_htf_h4 = input.string("240", "HTF 3", options=["240","60"], group=g1)
+i_hma_len = input.int(55, "HMA", group=g1)
+i_er_len  = input.int(21, "ER",  group=g1)
+
+g2 = "SMC"
+i_ssl_len  = input.int(20,  "SSL/BSL", group=g2)
+i_swing    = input.int(8,   "Swing",   group=g2)
+i_mss_bars = input.int(40,  "MSS bar", group=g2)
+i_ote_bars = input.int(50,  "OTE bar", group=g2)
+i_ote_rvol = input.float(0.5, "OTE RVOL", 0.2, 3.0, 0.1, group=g2)
+i_pdh_len  = input.int(1, "PDH/PDL gun", 1, 5, group=g2)
+
+g3 = "KILLZONE UTC"
+i_kz_lon    = input.bool(true,  "London 07-10",  group=g3)
+i_kz_ny     = input.bool(true,  "NY 13-16",      group=g3)
+i_kz_strict = input.bool(false, "KZ Zorunlu",    group=g3)
+
+g4 = "FILTRELER"
+i_wt_n1        = input.int(10,   "WT Ch",  group=g4)
+i_wt_n2        = input.int(21,   "WT Avg", group=g4)
+i_rsi_len      = input.int(14,   "RSI",    group=g4)
+i_rvol_apex    = input.float(1.5, "RVOL APEX", 0.5, 5, 0.1, group=g4)
+i_rvol_min     = input.float(0.8, "RVOL MIN",  0.3, 5, 0.1, group=g4)
+i_cvd_len      = input.int(20, "CVD", group=g4)
+i_trend_filter = input.bool(true, "Trend Filtre", group=g4)
+
+g5 = "RISK"
+i_atr_len = input.int(14,  "ATR", group=g5)
+i_sl_buf  = input.float(0.3, "SL ATR buf", 0.1, 2, 0.1, group=g5)
+i_tp1rr   = input.float(1.5, "TP1 RR", step=0.1, group=g5)
+i_tp2rr   = input.float(2.5, "TP2 RR", step=0.1, group=g5)
+i_tp3rr   = input.float(4.5, "TP3 RR", step=0.1, group=g5)
+i_be_auto = input.bool(true, "BE Otomatik", group=g5)
+
+g6 = "GORSEL"
+i_dash     = input.bool(true,  "Dashboard",  group=g6)
+i_ribbon   = input.bool(true,  "Ribbon",     group=g6)
+i_barcolor = input.bool(true,  "Bar Renk",   group=g6)
+i_show_pdh = input.bool(true,  "PDH/PDL",    group=g6)
+i_show_ote = input.bool(true,  "OTE",        group=g6)
+i_show_kz  = input.bool(true,  "KZ Renk",    group=g6)
+i_show_fvg = input.bool(false, "FVG",        group=g6)
+i_show_ob  = input.bool(false, "OB",         group=g6)
+
+// ══ BOLUM 1: TEMEL ══
+atr     = ta.atr(i_atr_len)
+hma_val = ta.hma(close, i_hma_len)
+hma_up  = hma_val > hma_val[1]
+er_net  = math.abs(close - close[i_er_len])
+er_path = math.sum(math.abs(ta.change(close)), i_er_len)
+er      = er_path > 0.0 ? er_net / er_path : 0.0
+trending = er > 0.50
+[dmi_p, dmi_m, adx_val] = ta.dmi(14, 14)
+adx_strong = adx_val > 25.0
+vwap_val   = ta.vwap(hlc3)
+htf_w_bull  = request.security(syminfo.tickerid, i_htf_w,  hma_up, lookahead=barmerge.lookahead_off)
+htf_d_bull  = request.security(syminfo.tickerid, i_htf_d,  hma_up, lookahead=barmerge.lookahead_off)
+htf_h4_bull = request.security(syminfo.tickerid, i_htf_h4, hma_up, lookahead=barmerge.lookahead_off)
+macro_bull_apex = htf_w_bull and htf_d_bull and htf_h4_bull
+macro_bear_apex = not htf_w_bull and not htf_d_bull and not htf_h4_bull
+macro_bull_norm = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0) >= 2
+macro_bear_norm = ((not htf_w_bull) ? 1 : 0) + ((not htf_d_bull) ? 1 : 0) + ((not htf_h4_bull) ? 1 : 0) >= 2
+mtf_score = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0)
+
+// ══ BOLUM 2: PDH/PDL ══
+pdh = request.security(syminfo.tickerid, "D", high[i_pdh_len], lookahead=barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[i_pdh_len],  lookahead=barmerge.lookahead_off)
+pdh_sweep = not na(pdh) and high > pdh and close < pdh and close < open
+pdl_sweep = not na(pdl) and low  < pdl and close > pdl and close > open
+var line  pdh_ln = na
+var label pdh_lb = na
+var line  pdl_ln = na
+var label pdl_lb = na
+if i_show_pdh and barstate.islast
+    line.delete(pdh_ln)
+    label.delete(pdh_lb)
+    line.delete(pdl_ln)
+    label.delete(pdl_lb)
+    if not na(pdh)
+        pdh_ln := line.new(bar_index - 50, pdh, bar_index, pdh, color=color.new(C_BEAR, 20), style=line.style_solid, width=2, extend=extend.right)
+        pdh_lb := label.new(bar_index, pdh, " PDH ", textcolor=color.new(C_BEAR, 10), color=color.new(color.black, 100), style=label.style_label_left, size=size.small)
+    if not na(pdl)
+        pdl_ln := line.new(bar_index - 50, pdl, bar_index, pdl, color=color.new(C_BULL, 20), style=line.style_solid, width=2, extend=extend.right)
+        pdl_lb := label.new(bar_index, pdl, " PDL ", textcolor=color.new(C_BULL, 10), color=color.new(color.black, 100), style=label.style_label_left, size=size.small)
+
+// ══ BOLUM 3: KILLZONE ══
+h_utc       = hour(time, "UTC")
+m_utc       = minute(time, "UTC")
+kz_london   = i_kz_lon and h_utc >= 7  and h_utc < 10
+kz_ny       = i_kz_ny  and h_utc >= 13 and h_utc < 16
+is_intraday = timeframe.in_seconds() <= 3600
+kz_any_on   = i_kz_lon or i_kz_ny
+in_kz       = (not is_intraday) or (not kz_any_on) or kz_london or kz_ny
+kz_name     = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : (is_intraday ? "-" : "HTF")
+kz_gate     = i_kz_strict ? in_kz : true
+nfp_time    = h_utc == 12 and m_utc >= 20 and m_utc <= 45 and dayofweek == 6
+fomc_time   = h_utc == 18 and dayofweek == 4
+news_filter = not nfp_time and not fomc_time
+bgcolor(i_show_kz and kz_london ? color.new(#1a3a6b, 90) : na, title="London KZ")
+bgcolor(i_show_kz and kz_ny     ? color.new(#0d3320, 90) : na, title="NY KZ")
+
+// ══ BOLUM 4: SWEEP ══
+ssl_20 = ta.lowest(low[1],   i_ssl_len)
+bsl_20 = ta.highest(high[1], i_ssl_len)
+ssl_50 = ta.lowest(low[1],   50)
+bsl_50 = ta.highest(high[1], 50)
+sweep_bull    = low  < ssl_20 and close > ssl_20 and close > open and kz_gate
+sweep_bear    = high > bsl_20 and close < bsl_20 and close < open and kz_gate
+sweep_bull_50 = low  < ssl_50 and close > ssl_50 and close > open and kz_gate
+sweep_bear_50 = high > bsl_50 and close < bsl_50 and close < open and kz_gate
+sweep_bull_pdl    = pdl_sweep and kz_gate
+sweep_bear_pdh    = pdh_sweep and kz_gate
+sweep_bull_strong = sweep_bull_pdl or sweep_bull_50
+sweep_bear_strong = sweep_bear_pdh or sweep_bear_50
+sweep_bull_any    = sweep_bull or sweep_bull_strong
+sweep_bear_any    = sweep_bear or sweep_bear_strong
+plotshape(sweep_bull_strong, "Sweep+", shape.diamond, location.belowbar, color=color.new(C_APEX, 15), size=size.tiny)
+plotshape(sweep_bear_strong, "Sweep-", shape.diamond, location.abovebar, color=color.new(C_BEAR, 15), size=size.tiny)
+
+// ══ BOLUM 5: SWING MSS ══
+swing_h = ta.pivothigh(high, i_swing, i_swing)
+swing_l = ta.pivotlow(low,   i_swing, i_swing)
+var float sh1 = na
+var float sh2 = na
+var float sl1 = na
+var float sl2 = na
+if not na(swing_h)
+    sh2 := sh1
+    sh1 := swing_h
+if not na(swing_l)
+    sl2 := sl1
+    sl1 := swing_l
+bos_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 > sh2 and close > open
+bos_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 < sl2 and close < open
+mss_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 < sh2 and close > open
+mss_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 > sl2 and close < open
+
+// ══ BOLUM 6: FVG OB ══
+fvg_bull = low  > high[2] and close[1] > high[2]
+fvg_bear = high < low[2]  and close[1] < low[2]
+htf_fvg_bull = request.security(syminfo.tickerid, i_htf_h4, low > high[2] and close[1] > high[2], lookahead=barmerge.lookahead_off)
+htf_fvg_bear = request.security(syminfo.tickerid, i_htf_h4, high < low[2] and close[1] < low[2],  lookahead=barmerge.lookahead_off)
+if i_show_fvg
+    if fvg_bull
+        box.new(bar_index - 2, high[2], bar_index + 8, low,  border_color=color.new(C_BULL, 60), bgcolor=color.new(C_BULL, 93))
+    if fvg_bear
+        box.new(bar_index - 2, high, bar_index + 8, low[2],  border_color=color.new(C_BEAR, 60), bgcolor=color.new(C_BEAR, 93))
+ob_bull_cond = bos_bull and close[i_swing] < open[i_swing]
+ob_bear_cond = bos_bear and close[i_swing] > open[i_swing]
+if i_show_ob
+    if ob_bull_cond
+        box.new(bar_index - i_swing, low[i_swing],  bar_index + 12, high[i_swing], border_color=color.new(C_GREEN, 20), bgcolor=color.new(C_GREEN, 89))
+    if ob_bear_cond
+        box.new(bar_index - i_swing, low[i_swing],  bar_index + 12, high[i_swing], border_color=color.new(C_RED,   20), bgcolor=color.new(C_RED,   89))
+
+// ══ BOLUM 7: INDIKATÖRLER ══
+ap   = hlc3
+esa  = ta.ema(ap, i_wt_n1)
+d_wt = ta.ema(math.abs(ap - esa), i_wt_n1)
+ci   = d_wt > 0.0 ? (ap - esa) / (0.015 * d_wt) : 0.0
+wt1  = ta.ema(ci, i_wt_n2)
+wt2  = ta.sma(wt1, 4)
+wt_xup      = ta.crossover(wt1, wt2)  and wt1 < -40.0
+wt_xdn      = ta.crossunder(wt1, wt2) and wt1 >  40.0
+wt_bull_div = ta.lowest(low, 10)   < ta.lowest(low, 10)[5]   and ta.lowest(wt1, 10)  > ta.lowest(wt1, 10)[5]
+wt_bear_div = ta.highest(high, 10) > ta.highest(high, 10)[5] and ta.highest(wt1, 10) < ta.highest(wt1, 10)[5]
+rsi          = ta.rsi(close, i_rsi_len)
+rsi_os       = rsi < 30.0
+rsi_ob       = rsi > 70.0
+rsi_bull_div = ta.lowest(low, 8)   < ta.lowest(low, 8)[4]   and ta.lowest(rsi, 8)  > ta.lowest(rsi, 8)[4]
+rsi_bear_div = ta.highest(high, 8) > ta.highest(high, 8)[4] and ta.highest(rsi, 8) < ta.highest(rsi, 8)[4]
+bv           = volume * ((close - low)   / math.max(high - low, 0.00001))
+sv           = volume * ((high  - close) / math.max(high - low, 0.00001))
+cvd_r        = math.sum(bv - sv, i_cvd_len)
+cvd_pos      = cvd_r > 0.0
+cvd_neg      = cvd_r < 0.0
+cvd_bull_div = cvd_r > cvd_r[5] and close < close[5]
+cvd_bear_div = cvd_r < cvd_r[5] and close > close[5]
+mfi          = ta.mfi(hlc3, 14)
+mfi_bull     = mfi < 30.0
+mfi_bear     = mfi > 70.0
+vol_sma      = ta.sma(volume, 20)
+rvol         = volume / math.max(vol_sma, 0.00001)
+apex_vol     = rvol >= i_rvol_apex
+norm_vol     = rvol >= i_rvol_min
+w_lo         = ta.lowest(low, 25)
+w_hi         = ta.highest(high, 25)
+w_rng        = w_hi - w_lo
+in_rng       = ta.stdev(close, 25) / close < 0.025
+spring       = in_rng and low  < w_lo + w_rng * 0.10 and close > w_lo + w_rng * 0.20 and norm_vol and close > open
+upthrust     = in_rng and high > w_hi - w_rng * 0.10 and close < w_hi - w_rng * 0.20 and norm_vol and close < open
+[st_trail, st_dir_t] = ta.supertrend(3.0, 10)
+
+// ══ DURUM DEGISKENLERI ══
+var int   ls            = 0
+var float l_swept       = na
+var float l_disp_top    = na
+var float l_swing_hi    = na
+var float l_ote_hi      = na
+var float l_ote_lo      = na
+var int   l_pbar        = 0
+var bool  l_ote_touched = false
+var int   ss            = 0
+var float s_swept       = na
+var float s_disp_bot    = na
+var float s_swing_lo    = na
+var float s_ote_lo      = na
+var float s_ote_hi      = na
+var int   s_pbar        = 0
+var bool  s_ote_touched = false
+var int   day_cnt       = 0
+var int   last_day      = 0
+
+// ══ BOLUM 8: ONAY PUANLARI ══
+lc1_base = wt1 > wt1[1]
+lc1_plus = wt_xup or wt_bull_div
+lc1_pts  = lc1_plus ? 2 : lc1_base ? 1 : 0
+lc2_base = rsi < 65.0 and rsi > rsi[1]
+lc2_plus = rsi_os or rsi_bull_div
+lc2_pts  = lc2_plus ? 2 : lc2_base ? 1 : 0
+lc3_base = norm_vol
+lc3_plus = apex_vol
+lc3_pts  = lc3_plus ? 2 : lc3_base ? 1 : 0
+lc4_base = cvd_pos or cvd_r > cvd_r[1]
+lc4_plus = spring or cvd_bull_div
+lc4_pts  = lc4_plus ? 2 : lc4_base ? 1 : 0
+lc5_base = mfi < 60.0
+lc5_plus = mfi_bull or htf_fvg_bull
+lc5_pts  = lc5_plus ? 2 : lc5_base ? 1 : 0
+lc6_base = ls >= 1 or fvg_bull or ob_bull_cond or close > vwap_val
+lc6_plus = sweep_bull_strong or pdl_sweep
+lc6_pts  = lc6_plus ? 2 : lc6_base ? 1 : 0
+l_total_pts  = lc1_pts + lc2_pts + lc3_pts + lc4_pts + lc5_pts + lc6_pts
+l_onay_count = (lc1_pts > 0 ? 1 : 0) + (lc2_pts > 0 ? 1 : 0) + (lc3_pts > 0 ? 1 : 0) + (lc4_pts > 0 ? 1 : 0) + (lc5_pts > 0 ? 1 : 0) + (lc6_pts > 0 ? 1 : 0)
+
+sc1_base = wt1 < wt1[1]
+sc1_plus = wt_xdn or wt_bear_div
+sc1_pts  = sc1_plus ? 2 : sc1_base ? 1 : 0
+sc2_base = rsi > 35.0 and rsi < rsi[1]
+sc2_plus = rsi_ob or rsi_bear_div
+sc2_pts  = sc2_plus ? 2 : sc2_base ? 1 : 0
+sc3_base = norm_vol
+sc3_plus = apex_vol
+sc3_pts  = sc3_plus ? 2 : sc3_base ? 1 : 0
+sc4_base = cvd_neg or cvd_r < cvd_r[1]
+sc4_plus = upthrust or cvd_bear_div
+sc4_pts  = sc4_plus ? 2 : sc4_base ? 1 : 0
+sc5_base = mfi > 40.0
+sc5_plus = mfi_bear or htf_fvg_bear
+sc5_pts  = sc5_plus ? 2 : sc5_base ? 1 : 0
+sc6_base = ss >= 1 or fvg_bear or ob_bear_cond or close < vwap_val
+sc6_plus = sweep_bear_strong or pdh_sweep
+sc6_pts  = sc6_plus ? 2 : sc6_base ? 1 : 0
+s_total_pts  = sc1_pts + sc2_pts + sc3_pts + sc4_pts + sc5_pts + sc6_pts
+s_onay_count = (sc1_pts > 0 ? 1 : 0) + (sc2_pts > 0 ? 1 : 0) + (sc3_pts > 0 ? 1 : 0) + (sc4_pts > 0 ? 1 : 0) + (sc5_pts > 0 ? 1 : 0) + (sc6_pts > 0 ? 1 : 0)
+
+min_onay = i_mode == "APEX" ? 6 : i_mode == "SNIPER" ? 5 : 4
+min_pts  = i_mode == "APEX" ? 8 : i_mode == "SNIPER" ? 6 : 4
+is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
+is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
+
+// ══ BOLUM 9: DURUM MAKINESI ══
+if dayofmonth != last_day
+    day_cnt  := 0
+    last_day := dayofmonth
+can_signal = day_cnt < i_daily_max
+max_wait   = i_mss_bars + i_ote_bars + 10
+if ls > 0 and (bar_index - l_pbar) > max_wait
+    ls            := 0
+    l_ote_touched := false
+if ss > 0 and (bar_index - s_pbar) > max_wait
+    ss            := 0
+    s_ote_touched := false
+
+if ls == 0
+    l_ote_touched := false
+    l_swing_hi    := na
+if ls == 0 and can_signal and sweep_bull_any and not macro_bear_apex and news_filter
+    ls         := 1
+    l_swept    := low
+    l_swing_hi := high
+    l_pbar     := bar_index
+if ls == 1
+    l_swing_hi := math.max(nz(l_swing_hi, high), high)
+if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_pbar) <= i_mss_bars
+    l_disp_top := nz(l_swing_hi, high)
+    fib_r       = l_disp_top - nz(l_swept, close - atr * 3.0)
+    l_ote_hi   := l_disp_top - fib_r * 0.618
+    l_ote_lo   := l_disp_top - fib_r * 0.786
+    ls         := 2
+    l_pbar     := bar_index
+if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and (bar_index - l_pbar) <= i_ote_bars
+    if low <= l_ote_hi
+        l_ote_touched := true
+    body_l       = (close - open) / math.max(high - low, 0.00001)
+    ote_reject_l = l_ote_touched and close > l_ote_hi and close > open and body_l > 0.40 and rvol >= i_ote_rvol
+    momentum_l   = close > open and body_l > 0.50 and adx_strong and st_dir_t < 0 and close > nz(l_disp_top, close) and rvol >= i_ote_rvol
+    if ote_reject_l or momentum_l
+        ls            := 3
+        l_ote_touched := false
+        l_pbar        := bar_index
+
+if ss == 0
+    s_ote_touched := false
+    s_swing_lo    := na
+if ss == 0 and can_signal and sweep_bear_any and not macro_bull_apex and news_filter
+    ss         := 1
+    s_swept    := high
+    s_swing_lo := low
+    s_pbar     := bar_index
+if ss == 1
+    s_swing_lo := math.min(nz(s_swing_lo, low), low)
+if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_pbar) <= i_mss_bars
+    s_disp_bot := nz(s_swing_lo, low)
+    fib_r2      = nz(s_swept, close + atr * 3.0) - s_disp_bot
+    s_ote_lo   := s_disp_bot + fib_r2 * 0.618
+    s_ote_hi   := s_disp_bot + fib_r2 * 0.786
+    ss         := 2
+    s_pbar     := bar_index
+if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and (bar_index - s_pbar) <= i_ote_bars
+    if high >= s_ote_lo
+        s_ote_touched := true
+    body_s       = (open - close) / math.max(high - low, 0.00001)
+    ote_reject_s = s_ote_touched and close < s_ote_lo and close < open and body_s > 0.40 and rvol >= i_ote_rvol
+    momentum_s   = close < open and body_s > 0.50 and adx_strong and st_dir_t > 0 and close < nz(s_disp_bot, close) and rvol >= i_ote_rvol
+    if ote_reject_s or momentum_s
+        ss            := 3
+        s_ote_touched := false
+        s_pbar        := bar_index
+
+if i_show_ote
+    if (ls == 2 or ls == 3) and not na(l_ote_lo) and not na(l_ote_hi)
+        box.new(bar_index - 1, l_ote_lo, bar_index + 12, l_ote_hi, border_color=color.new(C_GOLD,   20), bgcolor=color.new(C_GOLD,   91), text="OTE 61-78%", text_color=color.new(C_GOLD,   15), text_size=size.tiny)
+    if (ss == 2 or ss == 3) and not na(s_ote_lo) and not na(s_ote_hi)
+        box.new(bar_index - 1, s_ote_lo, bar_index + 12, s_ote_hi, border_color=color.new(C_ORANGE, 20), bgcolor=color.new(C_ORANGE, 91), text="OTE 61-78%", text_color=color.new(C_ORANGE, 15), text_size=size.tiny)
+
+// ══ BOLUM 10: SINYAL ══
+trend_long_ok  = (not i_trend_filter) or st_dir_t < 0
+trend_short_ok = (not i_trend_filter) or st_dir_t > 0
+sl_dist_l   = close - (nz(l_swept, close - atr * 3.0) - atr * i_sl_buf)
+sl_dist_s   = (nz(s_swept, close + atr * 3.0) + atr * i_sl_buf) - close
+risk_pct_l  = sl_dist_l / close * 100.0
+risk_pct_s  = sl_dist_s / close * 100.0
+good_risk_l = risk_pct_l >= 0.15 and risk_pct_l <= 3.5
+good_risk_s = risk_pct_s >= 0.15 and risk_pct_s <= 3.5
+
+ict_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok  and good_risk_l
+ict_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok and good_risk_s
+ict_long      = ict_long_raw  and not ict_long_raw[1]
+ict_short     = ict_short_raw and not ict_short_raw[1]
+
+expr_body_l = (close - open)  / math.max(high - low, 0.001)
+expr_body_s = (open  - close) / math.max(high - low, 0.001)
+expr_sl_l   = low  - atr * i_sl_buf
+expr_sl_s   = high + atr * i_sl_buf
+expr_risk_l = (close - expr_sl_l) / close * 100.0
+expr_risk_s = (expr_sl_s - close) / close * 100.0
+expr_good_l = expr_risk_l >= 0.15 and expr_risk_l <= 3.5
+expr_good_s = expr_risk_s >= 0.15 and expr_risk_s <= 3.5
+expr_l_cond = ls == 0 and can_signal and news_filter and expr_body_l >= 0.60 and close > open and macro_bull_norm and st_dir_t < 0 and adx_strong and rvol >= 0.8 and close > vwap_val and expr_good_l
+expr_s_cond = ss == 0 and can_signal and news_filter and expr_body_s >= 0.60 and close < open and macro_bear_norm and st_dir_t > 0 and adx_strong and rvol >= 0.8 and close < vwap_val and expr_good_s
+express_long  = expr_l_cond and not expr_l_cond[1]
+express_short = expr_s_cond and not expr_s_cond[1]
+
+av_long  = ict_long  or express_long
+av_short = ict_short or express_short
+var bool is_express = false
+if av_long
+    is_express := express_long
+    ls      := 0
+    ss      := 0
+    day_cnt += 1
+if av_short
+    is_express := express_short
+    ss      := 0
+    ls      := 0
+    day_cnt += 1
+
+// ══ BOLUM 11: STRATEJI GIRIS / CIKIS ══
+var float p_entry  = na
+var float p_sl0    = na
+var float p_tp1    = na
+var float p_tp2    = na
+var float p_tp3    = na
+var bool  p_tp1hit = false
+
+flat = strategy.position_size == 0
+
+if av_long and flat
+    p_entry := close
+    p_sl0   := is_express ? expr_sl_l : (nz(l_swept, close - atr * 3.0) - atr * i_sl_buf)
+    rl       = p_entry - p_sl0
+    p_tp1   := p_entry + rl * i_tp1rr
+    p_tp2   := p_entry + rl * i_tp2rr
+    p_tp3   := p_entry + rl * i_tp3rr
+    p_tp1hit := false
+    ra       = strategy.equity * i_risk / 100.0
+    qrisk    = ra / math.max(rl, syminfo.mintick)
+    qmax     = strategy.equity * i_lev / p_entry
+    qf       = math.min(qrisk, qmax)
+    strategy.entry("LONG", strategy.long, qty=qf)
+
+if av_short and flat
+    p_entry := close
+    p_sl0   := is_express ? expr_sl_s : (nz(s_swept, close + atr * 3.0) + atr * i_sl_buf)
+    rs       = p_sl0 - p_entry
+    p_tp1   := p_entry - rs * i_tp1rr
+    p_tp2   := p_entry - rs * i_tp2rr
+    p_tp3   := p_entry - rs * i_tp3rr
+    p_tp1hit := false
+    ra       = strategy.equity * i_risk / 100.0
+    qrisk    = ra / math.max(rs, syminfo.mintick)
+    qmax     = strategy.equity * i_lev / p_entry
+    qf       = math.min(qrisk, qmax)
+    strategy.entry("SHORT", strategy.short, qty=qf)
+
+// Pozisyon yonetimi: TP1 50% / TP2 30% / TP3 20% + BE
+if strategy.position_size > 0
+    if high >= p_tp1
+        p_tp1hit := true
+    cur_sl_l = (i_be_auto and p_tp1hit) ? p_entry : p_sl0
+    strategy.exit("XL1", from_entry="LONG", qty_percent=50, limit=p_tp1, stop=cur_sl_l)
+    strategy.exit("XL2", from_entry="LONG", qty_percent=30, limit=p_tp2, stop=cur_sl_l)
+    strategy.exit("XL3", from_entry="LONG", qty_percent=20, limit=p_tp3, stop=cur_sl_l)
+    if mss_bear and close > p_entry + (p_tp1 - p_entry) * 0.5
+        strategy.close("LONG", comment="MSS Exit")
+
+if strategy.position_size < 0
+    if low <= p_tp1
+        p_tp1hit := true
+    cur_sl_s = (i_be_auto and p_tp1hit) ? p_entry : p_sl0
+    strategy.exit("XS1", from_entry="SHORT", qty_percent=50, limit=p_tp1, stop=cur_sl_s)
+    strategy.exit("XS2", from_entry="SHORT", qty_percent=30, limit=p_tp2, stop=cur_sl_s)
+    strategy.exit("XS3", from_entry="SHORT", qty_percent=20, limit=p_tp3, stop=cur_sl_s)
+    if mss_bull and close < p_entry - (p_entry - p_tp1) * 0.5
+        strategy.close("SHORT", comment="MSS Exit")
+
+// ══ BOLUM 12: GRAFIK ══
+ribbon_hi = ta.hma(close, 21)
+t_bull    = st_dir_t < 0
+t_bear    = st_dir_t > 0
+p_rhi = plot(i_ribbon ? ribbon_hi : na, "R+", display=display.none)
+p_rlo = plot(i_ribbon ? hma_val   : na, "R-", display=display.none)
+fill(p_rhi, p_rlo, i_ribbon ? (t_bull ? color.new(#00c853, 52) : color.new(#d50000, 52)) : na, title="Ribbon")
+bgcolor(i_ribbon and t_bull ? color.new(#00c853, 93) : na, title="Bull Zone")
+bgcolor(i_ribbon and t_bear ? color.new(#d50000, 93) : na, title="Bear Zone")
+t_col = t_bull ? color.new(#00e676, 10) : color.new(#ff1744, 10)
+plot(hma_val,  "HMA",  t_col, 2)
+plot(vwap_val, "VWAP", color.new(C_WHITE, 72), 1, plot.style_linebr)
+sig_fl = av_long or av_long[1] or av_long[2]
+sig_fs = av_short or av_short[1] or av_short[2]
+bgcolor(sig_fl ? color.new(C_APEX, 82) : sig_fs ? color.new(C_BEAR, 82) : na, title="Signal Flash")
+barcolor(i_barcolor ? (av_long ? C_APEX : av_short ? C_BEAR : na) : na)
+in_pos = strategy.position_size != 0
+live_sl = (i_be_auto and p_tp1hit) ? p_entry : p_sl0
+plot(in_pos ? live_sl : na, "SL",  color.new(C_RED, 20),   2, plot.style_linebr)
+plot(in_pos ? p_tp1   : na, "TP1", color.new(C_GREEN, 42), 1, plot.style_linebr)
+plot(in_pos ? p_tp2   : na, "TP2", color.new(C_GREEN, 18), 2, plot.style_linebr)
+plot(in_pos ? p_tp3   : na, "TP3", color.new(C_APEX,  5),  3, plot.style_linebr)
+plotshape(av_long  and     is_apex_grade_l, "APEX LONG",  shape.triangleup,   location.belowbar, color=C_APEX,  text="A+", textcolor=color.white, size=size.normal)
+plotshape(av_long  and not is_apex_grade_l, "LONG",       shape.triangleup,   location.belowbar, color=C_GREEN, text="L",  textcolor=color.white, size=size.small)
+plotshape(av_short and     is_apex_grade_s, "APEX SHORT", shape.triangledown, location.abovebar, color=C_BEAR,  text="A+", textcolor=color.white, size=size.normal)
+plotshape(av_short and not is_apex_grade_s, "SHORT",      shape.triangledown, location.abovebar, color=C_RED,   text="S",  textcolor=color.white, size=size.small)
+plotshape(mss_bull and ls == 1, "MSS+", shape.circle, location.belowbar, color=color.new(C_PURPLE, 30), size=size.tiny)
+plotshape(mss_bear and ss == 1, "MSS-", shape.circle, location.abovebar, color=color.new(C_PURPLE, 30), size=size.tiny)
+
+// ══ BOLUM 13: DASHBOARD ══
+var table dt = table.new(position.top_right, 2, 18, bgcolor=color.new(C_BG, 5), border_color=color.new(#1a2540, 30), border_width=1, frame_color=color.new(C_APEX, 40), frame_width=2)
+
+dc(int r, int c, string t, color tc, color bc) =>
+    table.cell(dt, c, r, t, text_color=tc, bgcolor=bc, text_size=size.small, text_halign=text.align_left)
+
+dc_c(int r, int c, string t, color tc, color bc) =>
+    table.cell(dt, c, r, t, text_color=tc, bgcolor=bc, text_size=size.small, text_halign=text.align_center)
+
+if i_dash and barstate.islast
+    SEP    = color.new(C_SEP, 0)
+    mtf_sc = mtf_score >= 3 ? C_APEX : mtf_score >= 2 ? C_GOLD : C_BEAR
+    mtf_t  = "W:" + (htf_w_bull ? "+" : "-") + " D:" + (htf_d_bull ? "+" : "-") + " 4H:" + (htf_h4_bull ? "+" : "-") + " (" + str.tostring(mtf_score) + "/3)"
+    l_s    = ls == 0 ? (expr_l_cond ? "EXPRESS RDY" : "IDLE") : ls == 1 ? "SWEPT" : ls == 2 ? "MSS/OTE" : "OTE READY"
+    s_s    = ss == 0 ? (expr_s_cond ? "EXPRESS RDY" : "IDLE") : ss == 1 ? "SWEPT" : ss == 2 ? "MSS/OTE" : "OTE READY"
+    l_sc   = ls == 3 ? C_APEX  : ls > 0 ? C_GOLD   : color.new(C_GRAY, 30)
+    s_sc   = ss == 3 ? C_BEAR  : ss > 0 ? C_ORANGE  : color.new(C_GRAY, 30)
+    pos_t  = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "-"
+    pos_c  = strategy.position_size > 0 ? C_BULL : strategy.position_size < 0 ? C_BEAR : color.new(C_GRAY, 30)
+    tot    = strategy.closedtrades
+    wins   = strategy.wintrades
+    losses = strategy.losstrades
+    wr     = tot > 0 ? float(wins) / float(tot) * 100.0 : 0.0
+    pf     = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0.0
+    npnl   = strategy.netprofit
+    np_pct = strategy.initial_capital > 0 ? npnl / strategy.initial_capital * 100.0 : 0.0
+    wr_c   = wr > 70.0 ? C_APEX : wr > 55.0 ? C_GOLD : C_BEAR
+    pf_c   = pf > 2.0 ? C_APEX : pf > 1.3 ? C_GOLD : C_BEAR
+    np_c   = npnl > 0 ? C_APEX : C_BEAR
+    dc_c(0,  0, "ORACLE APEX STRATEJI", C_APEX, color.new(C_HDR, 0))
+    dc_c(0,  1, i_mode + " " + str.tostring(i_lev, "#") + "x", C_WHITE, color.new(C_HDR, 0))
+    dc_c(1,  0, "-- MARKET --", color.new(C_GRAY, 45), SEP)
+    dc_c(1,  1, "------------", color.new(C_GRAY, 45), SEP)
+    dc(2,  0, "  MTF", color.new(C_GRAY, 20), C_BG2)
+    dc(2,  1, "  " + mtf_t, mtf_sc, C_BG2)
+    dc(3,  0, "  ADX", color.new(C_GRAY, 20), C_BG2)
+    dc(3,  1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? " Guclu" : " Zayif"), adx_strong ? C_BULL : C_GOLD, C_BG2)
+    dc(4,  0, "  RVOL", color.new(C_GRAY, 20), C_BG2)
+    dc(4,  1, "  " + str.tostring(rvol, "#.##") + "x", apex_vol ? C_APEX : norm_vol ? C_ORANGE : color.new(C_GRAY, 30), C_BG2)
+    dc(5,  0, "  KZ", color.new(C_GRAY, 20), C_BG2)
+    dc(5,  1, "  " + (in_kz ? kz_name : "Dis"), in_kz ? C_APEX : color.new(C_GRAY, 30), C_BG2)
+    dc_c(6,  0, "-- STATE --",  color.new(C_GRAY, 45), SEP)
+    dc_c(6,  1, "------------", color.new(C_GRAY, 45), SEP)
+    dc(7,  0, "  LONG",  color.new(C_BULL, 30), C_BG_L)
+    dc(7,  1, "  " + l_s, l_sc, C_BG_L)
+    dc(8,  0, "  SHORT", color.new(C_BEAR, 30), C_BG_S)
+    dc(8,  1, "  " + s_s, s_sc, C_BG_S)
+    dc(9,  0, "  Poz", color.new(C_GRAY, 20), C_BG_ST)
+    dc(9,  1, "  " + pos_t, pos_c, C_BG_ST)
+    dc(10, 0, "  Bugun", color.new(C_GRAY, 20), C_BG_ST)
+    dc(10, 1, "  " + str.tostring(day_cnt) + "/" + str.tostring(i_daily_max), day_cnt >= i_daily_max ? C_ORANGE : C_APEX, C_BG_ST)
+    dc_c(11, 0, "-- BACKTEST --", color.new(C_GRAY, 45), SEP)
+    dc_c(11, 1, "------------",   color.new(C_GRAY, 45), SEP)
+    dc(12, 0, "  Islem", color.new(C_GRAY, 20), C_BG2)
+    dc(12, 1, "  " + str.tostring(tot) + " (W:" + str.tostring(wins) + " L:" + str.tostring(losses) + ")", C_WHITE, C_BG2)
+    dc(13, 0, "  Win%", color.new(C_GRAY, 20), C_BG2)
+    dc(13, 1, "  " + str.tostring(wr, "#.#") + "%", wr_c, C_BG2)
+    dc(14, 0, "  Profit Factor", color.new(C_GRAY, 20), C_BG2)
+    dc(14, 1, "  " + str.tostring(pf, "#.##"), pf_c, C_BG2)
+    dc(15, 0, "  Net Kar", color.new(C_GRAY, 20), C_BG2)
+    dc(15, 1, "  " + str.tostring(npnl, "#.#") + " (" + str.tostring(np_pct, "#.#") + "%)", np_c, C_BG2)
+    dc(16, 0, "  Max DD%", color.new(C_GRAY, 20), C_BG2)
+    dc(16, 1, "  " + str.tostring(strategy.max_drawdown / math.max(strategy.initial_capital, 1) * 100.0, "#.#") + "%", C_GOLD, C_BG2)
+
+// ══ BOLUM 14: ALERTLER ══
+alertcondition(av_long,  "APEX LONG",  "ORACLE APEX STRATEJI - LONG")
+alertcondition(av_short, "APEX SHORT", "ORACLE APEX STRATEJI - SHORT")
