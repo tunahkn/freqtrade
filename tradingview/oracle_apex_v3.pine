@@ -107,7 +107,7 @@ er_path  = math.sum(math.abs(ta.change(close)), i_er_len)
 er       = er_path > 0.0 ? er_net / er_path : 0.0
 trending = er > 0.50
 
-[_, _, adx_val] = ta.dmi(14, 14)
+[dmi_p, dmi_m, adx_val] = ta.dmi(14, 14)
 adx_strong = adx_val > 25.0
 
 vwap_val = ta.vwap(hlc3)
@@ -313,6 +313,27 @@ upthrust = in_rng and high > w_hi - w_rng * 0.10 and close < w_hi - w_rng * 0.20
 
 [st_trail, st_dir_t] = ta.supertrend(3.0, 10)
 
+// ── DURUM MAKİNESİ: var değişkenleri BÖLÜM 8'den önce tanımlanmalı ──
+// (lc6_base/sc6_base, ls/ss kullandığı için forward reference hatası oluşurdu)
+var int   ls            = 0
+var float l_swept       = na
+var float l_disp_top    = na
+var float l_swing_hi    = na
+var float l_ote_hi      = na
+var float l_ote_lo      = na
+var int   l_pbar        = 0
+var bool  l_ote_touched = false
+var int   ss            = 0
+var float s_swept       = na
+var float s_disp_bot    = na
+var float s_swing_lo    = na
+var float s_ote_lo      = na
+var float s_ote_hi      = na
+var int   s_pbar        = 0
+var bool  s_ote_touched = false
+var int   day_cnt       = 0
+var int   last_day      = 0
+
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 8: 6 ONAY BİLEŞENİ (AĞIRLIKLI — max 12 puan)
 // ═══════════════════════════════════════════════════════════════════════
@@ -384,29 +405,8 @@ is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
 is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
 
 // ═══════════════════════════════════════════════════════════════════════
-//  BÖLÜM 9: DURUM MAKİNESİ
+//  BÖLÜM 9: DURUM MAKİNESİ (güncelleme mantığı)
 // ═══════════════════════════════════════════════════════════════════════
-var int   ls            = 0
-var float l_swept       = na
-var float l_disp_top    = na
-var float l_swing_hi    = na   // sweep→MSS arası en yüksek fiyat (fib anchor)
-var float l_ote_hi      = na
-var float l_ote_lo      = na
-var int   l_pbar        = 0
-var bool  l_ote_touched = false
-
-var int   ss            = 0
-var float s_swept       = na
-var float s_disp_bot    = na
-var float s_swing_lo    = na   // sweep→MSS arası en düşük fiyat (fib anchor)
-var float s_ote_lo      = na
-var float s_ote_hi      = na
-var int   s_pbar        = 0
-var bool  s_ote_touched = false
-
-var int day_cnt  = 0
-var int last_day = 0
-
 if dayofmonth != last_day
     day_cnt  := 0
     last_day := dayofmonth
