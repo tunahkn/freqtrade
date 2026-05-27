@@ -514,16 +514,11 @@ if i_show_ote
 // ═══════════════════════════════════════════════════════════════════════
 //  BÖLÜM 10: SİNYAL ÜRETİMİ
 // ═══════════════════════════════════════════════════════════════════════
-// NOT: in_kz / macro_bull / trending / news_filter setup BAŞLARKEN (ls 0->1)
-// zaten kontrol edildi. OTE rejection sweep'ten 20-40 bar SONRA olur — o anda
-// killzone geçmiş olur. O yüzden burada tekrar şart koşmuyoruz, yoksa sinyal
-// hiçbir zaman tetiklenmez. Tetikleyici = OTE rejection + onaylar + günlük limit.
-// Trend filtresi: supertrend yönü ile uyumsuz sinyalleri ele (whipsaw azaltır)
+// Trend filtresi: supertrend yönü ile uyumsuz sinyalleri ele
 trend_long_ok  = (not i_trend_filter) or st_dir_t < 0
 trend_short_ok = (not i_trend_filter) or st_dir_t > 0
 
-// ATR kalite filtresi: SL mesafesi 0.15%–3% arasında olmalı
-// Çok dar = noise, çok geniş = kötü RR
+// ATR kalite filtresi: SL mesafesi 0.15%–3.5% arasında olmalı
 sl_dist_l   = close - (nz(l_swept, close - atr * 3.0) - atr * i_sl_buf)
 sl_dist_s   = (nz(s_swept, close + atr * 3.0) + atr * i_sl_buf) - close
 risk_pct_l  = sl_dist_l / close * 100.0
@@ -531,17 +526,53 @@ risk_pct_s  = sl_dist_s / close * 100.0
 good_risk_l = risk_pct_l >= 0.15 and risk_pct_l <= 3.5
 good_risk_s = risk_pct_s >= 0.15 and risk_pct_s <= 3.5
 
-av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok  and good_risk_l
-av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok and good_risk_s
+// ── ICT YOLU: Sweep → MSS → OTE → Sinyal ──────────────────────────────
+ict_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok  and good_risk_l
+ict_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok and good_risk_s
 
-av_long  = av_long_raw  and not av_long_raw[1]
-av_short = av_short_raw and not av_short_raw[1]
+ict_long  = ict_long_raw  and not ict_long_raw[1]
+ict_short = ict_short_raw and not ict_short_raw[1]
+
+// ── EXPRESS YOLU: Sweep gerektirmez — güçlü impuls + HTF uyumu ─────────
+// Büyük trendlerde sweep olmadan başlayan hareketleri yakalar.
+// Şartlar: güçlü mum (%60+ gövde) + 2/3 HTF + Supertrend + ADX + RVOL + VWAP
+expr_body_l   = (close - open)  / math.max(high - low, 0.001)
+expr_body_s   = (open  - close) / math.max(high - low, 0.001)
+expr_sl_l     = low  - atr * i_sl_buf
+expr_sl_s     = high + atr * i_sl_buf
+expr_risk_l   = (close - expr_sl_l) / close * 100.0
+expr_risk_s   = (expr_sl_s - close) / close * 100.0
+expr_good_l   = expr_risk_l >= 0.15 and expr_risk_l <= 3.5
+expr_good_s   = expr_risk_s >= 0.15 and expr_risk_s <= 3.5
+
+express_long_raw  = ls == 0 and can_signal and news_filter and
+                    expr_body_l >= 0.60 and close > open and
+                    macro_bull_norm and st_dir_t < 0 and adx_strong and
+                    rvol >= 0.8 and close > vwap_val and expr_good_l
+
+express_short_raw = ss == 0 and can_signal and news_filter and
+                    expr_body_s >= 0.60 and close < open and
+                    macro_bear_norm and st_dir_t > 0 and adx_strong and
+                    rvol >= 0.8 and close < vwap_val and expr_good_s
+
+express_long  = express_long_raw  and not express_long_raw[1]
+express_short = express_short_raw and not express_short_raw[1]
+
+// ── BİRLEŞİK SİNYAL ───────────────────────────────────────────────────
+av_long  = ict_long  or express_long
+av_short = ict_short or express_short
+
+var bool is_express = false
 
 if av_long
+    is_express := express_long
     ls      := 0
+    ss      := 0
     day_cnt += 1
 if av_short
+    is_express := express_short
     ss      := 0
+    ls      := 0
     day_cnt += 1
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -558,20 +589,20 @@ var bool  be_hit     = false
 var bool  tp1_hit    = false
 
 if av_long
-    entry_p    := close
-    sl_p       := nz(l_swept, close - atr * 3.0) - atr * i_sl_buf
+    entry_p     := close
+    sl_p        := is_express ? expr_sl_l : (nz(l_swept, close - atr * 3.0) - atr * i_sl_buf)
     sl_original := sl_p
-    risk_l      = entry_p - sl_p
-    tp1_p      := entry_p + risk_l * i_tp1rr
-    tp2_p      := entry_p + risk_l * i_tp2rr
-    tp3_p      := entry_p + risk_l * i_tp3rr
-    trade_d    := 1
-    be_hit     := false
-    tp1_hit    := false
+    risk_l       = entry_p - sl_p
+    tp1_p       := entry_p + risk_l * i_tp1rr
+    tp2_p       := entry_p + risk_l * i_tp2rr
+    tp3_p       := entry_p + risk_l * i_tp3rr
+    trade_d     := 1
+    be_hit      := false
+    tp1_hit     := false
 
 if av_short
-    entry_p    := close
-    sl_p       := nz(s_swept, close + atr * 3.0) + atr * i_sl_buf
+    entry_p     := close
+    sl_p        := is_express ? expr_sl_s : (nz(s_swept, close + atr * 3.0) + atr * i_sl_buf)
     sl_original := sl_p
     risk_s      = sl_p - entry_p
     tp1_p      := entry_p - risk_s * i_tp1rr
@@ -706,7 +737,7 @@ dc_c(int r, int c, string t, color tc, color bc) =>
 //  BÖLÜM 14: SİNYAL ETİKETLERİ
 // ═══════════════════════════════════════════════════════════════════════
 if av_long
-    l_grade  = is_apex_grade_l ? "◆ APEX GRADE" : "● SNIPER"
+    l_grade  = is_express ? "▶ EXPRESS" : is_apex_grade_l ? "◆ APEX GRADE" : "● ICT"
     l_pdltxt = pdl_sweep ? "  PDL ✓" : ""
     l_kztxt  = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
     l_txt    = "▲  LONG  " + l_kztxt + "\n" +
@@ -738,7 +769,7 @@ if av_long
     line.new(bar_index, tp3_p, bar_index + 25, tp3_p, color=color.new(C_APEX, 10),  style=line.style_dashed, width=2)
 
 if av_short
-    s_grade  = is_apex_grade_s ? "◆ APEX GRADE" : "● SNIPER"
+    s_grade  = is_express ? "▶ EXPRESS" : is_apex_grade_s ? "◆ APEX GRADE" : "● ICT"
     s_pdhtxt = pdh_sweep ? "  PDH ✓" : ""
     s_kztxt  = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
     s_txt    = "▼  SHORT  " + s_kztxt + "\n" +
@@ -848,8 +879,8 @@ if i_dash and barstate.islast
     rv_c   = apex_vol ? C_APEX : norm_vol ? C_ORANGE : color.new(C_GRAY, 30)
     news_c = news_filter ? C_APEX : C_BEAR
 
-    l_s  = ls == 0 ? "⊙ IDLE" : ls == 1 ? "→ SWEPT" : ls == 2 ? "→ MSS" : "⊛ OTE"
-    s_s  = ss == 0 ? "⊙ IDLE" : ss == 1 ? "→ SWEPT" : ss == 2 ? "→ MSS" : "⊛ OTE"
+    l_s  = ls == 0 ? (express_long_raw ? "▶ EXPRESS RDY" : "⊙ IDLE") : ls == 1 ? "→ SWEPT" : ls == 2 ? "→ MSS/OTE" : "⊛ OTE READY"
+    s_s  = ss == 0 ? (express_short_raw ? "▶ EXPRESS RDY" : "⊙ IDLE") : ss == 1 ? "→ SWEPT" : ss == 2 ? "→ MSS/OTE" : "⊛ OTE READY"
     l_sc = ls == 3 ? C_APEX  : ls > 0 ? C_GOLD  : color.new(C_GRAY, 30)
     s_sc = ss == 3 ? C_BEAR  : ss > 0 ? C_ORANGE : color.new(C_GRAY, 30)
 
@@ -955,10 +986,10 @@ alertcondition(is_apex_grade_s and ss == 3, "APEX GRADE SHORT READY", "ORACLE AP
 
 // Dinamik JSON webhook alertleri — alert() ile
 if av_long
-    alert('{"s":"LONG","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_apex_grade_l ? "APEX" : "SNIPER") + '","pts":"' + str.tostring(l_total_pts) + '","conf":"' + str.tostring(l_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","pdl":"' + (pdl_sweep ? "true" : "false") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"buy"}', alert.freq_once_per_bar)
+    alert('{"s":"LONG","src":"ORACLE_APEX_v3","type":"' + (is_express ? "EXPRESS" : "ICT") + '","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_express ? "EXPRESS" : is_apex_grade_l ? "APEX" : "ICT") + '","pts":"' + str.tostring(l_total_pts) + '","conf":"' + str.tostring(l_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"buy"}', alert.freq_once_per_bar)
 
 if av_short
-    alert('{"s":"SHORT","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_apex_grade_s ? "APEX" : "SNIPER") + '","pts":"' + str.tostring(s_total_pts) + '","conf":"' + str.tostring(s_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","pdh":"' + (pdh_sweep ? "true" : "false") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"sell"}', alert.freq_once_per_bar)
+    alert('{"s":"SHORT","src":"ORACLE_APEX_v3","type":"' + (is_express ? "EXPRESS" : "ICT") + '","sym":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","px":"' + str.tostring(close,"#.####") + '","sl":"' + str.tostring(nz(sl_p),"#.####") + '","tp1":"' + str.tostring(nz(tp1_p),"#.####") + '","tp2":"' + str.tostring(nz(tp2_p),"#.####") + '","tp3":"' + str.tostring(nz(tp3_p),"#.####") + '","grade":"' + (is_express ? "EXPRESS" : is_apex_grade_s ? "APEX" : "ICT") + '","pts":"' + str.tostring(s_total_pts) + '","conf":"' + str.tostring(s_onay_count) + '","kz":"' + kz_name + '","rvol":"' + str.tostring(rvol,"#.##") + '","mtf":"' + str.tostring(mtf_score) + '/3","act":"sell"}', alert.freq_once_per_bar)
 
 if kapar_long or kapar_short
     alert('{"s":"EXIT","src":"ORACLE_APEX_v3","sym":"' + syminfo.ticker + '","px":"' + str.tostring(close,"#.####") + '","act":"close"}', alert.freq_once_per_bar)
