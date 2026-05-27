@@ -68,6 +68,8 @@ i_rsi_len   = input.int(14,  "RSI",            group=g4)
 i_rvol_apex = input.float(2.5, "APEX Min RVOL", 0.5, 5, 0.1, group=g4)
 i_rvol_min  = input.float(1.8, "Normal Min RVOL", 0.5, 5, 0.1, group=g4)
 i_cvd_len   = input.int(20, "CVD Pencere", group=g4)
+i_trend_filter = input.bool(true, "Trend Filtresi (Supertrend yönü)", group=g4,
+                 tooltip="AÇIK=sadece supertrend yönünde sinyal (whipsaw azaltır, win rate artar) | KAPALI=her iki yön")
 
 g5 = "🛡 RİSK / POZİSYON YÖNETİMİ"
 i_atr_len = input.int(14,  "ATR", group=g5)
@@ -438,7 +440,7 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
     body_l       = (close - open) / math.max(high - low, 0.00001)
     ote_reject_l = l_ote_touched and close > l_ote_hi and close > open and
                    body_l > 0.40 and rvol >= i_ote_rvol
-    momentum_l   = close > open and body_l > 0.50 and
+    momentum_l   = close > open and body_l > 0.50 and adx_strong and st_dir_t < 0 and
                    close > nz(l_disp_top, close) and rvol >= i_ote_rvol
     if ote_reject_l or momentum_l
         ls            := 3
@@ -472,7 +474,7 @@ if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
     body_s       = (open - close) / math.max(high - low, 0.00001)
     ote_reject_s = s_ote_touched and close < s_ote_lo and close < open and
                    body_s > 0.40 and rvol >= i_ote_rvol
-    momentum_s   = close < open and body_s > 0.50 and
+    momentum_s   = close < open and body_s > 0.50 and adx_strong and st_dir_t > 0 and
                    close < nz(s_disp_bot, close) and rvol >= i_ote_rvol
     if ote_reject_s or momentum_s
         ss            := 3
@@ -496,8 +498,11 @@ if i_show_ote
 // zaten kontrol edildi. OTE rejection sweep'ten 20-40 bar SONRA olur — o anda
 // killzone geçmiş olur. O yüzden burada tekrar şart koşmuyoruz, yoksa sinyal
 // hiçbir zaman tetiklenmez. Tetikleyici = OTE rejection + onaylar + günlük limit.
-av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal
-av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal
+// Trend filtresi: supertrend yönü ile uyumsuz sinyalleri ele (whipsaw azaltır)
+trend_long_ok  = (not i_trend_filter) or st_dir_t < 0
+trend_short_ok = (not i_trend_filter) or st_dir_t > 0
+av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok
+av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok
 
 av_long  = av_long_raw  and not av_long_raw[1]
 av_short = av_short_raw and not av_short_raw[1]
