@@ -31,7 +31,7 @@ C_SEP    = #141e35
 
 // ── INPUTS ──────────────────────────────────────────────────────────
 g0 = "🎯 GENEL"
-i_mode      = input.string("SNIPER", "Mod",
+i_mode      = input.string("PRECISION", "Mod",
               options=["APEX","SNIPER","PRECISION"], group=g0,
               tooltip="APEX=6/6 onay zorunlu | SNIPER=5/6 | PRECISION=4/6")
 i_lev       = input.float(10,  "Kaldıraç (x)", 1, 125, 0.5, group=g0)
@@ -48,10 +48,12 @@ i_er_len  = input.int(21, "Efficiency Ratio", group=g1)
 g2 = "🏦 SMC / LİKİDİTE"
 i_ssl_len  = input.int(20, "SSL/BSL Pencere", group=g2)
 i_swing    = input.int(8,  "Swing Uzunluk",   group=g2)
-i_mss_bars  = input.int(15,  "MSS Bekleme (bar)",  group=g2)
-i_ote_bars  = input.int(30,  "OTE Bekleme (bar)",  group=g2)
-i_ote_rvol  = input.float(0.8, "OTE Min RVOL", 0.3, 3.0, 0.1, group=g2,
-              tooltip="OTE rejection mumunda gereken min RVOL. 0.8=gevşek, 1.5=sıkı")
+i_mss_bars  = input.int(40,  "MSS Bekleme (bar)",  group=g2,
+              tooltip="Sweep sonrası MSS için bekleme. 40 bar=10s (15dk TF) — Asya→London arası yeterli")
+i_ote_bars  = input.int(50,  "OTE Bekleme (bar)",  group=g2,
+              tooltip="MSS sonrası OTE pullback için bekleme. 50 bar=12.5s (15dk TF)")
+i_ote_rvol  = input.float(0.5, "OTE Min RVOL", 0.2, 3.0, 0.1, group=g2,
+              tooltip="OTE rejection mumunda gereken min RVOL. 0.5=çok gevşek, 1.5=sıkı")
 i_pdh_len  = input.int(1,  "PDH/PDL (gün geriye)", 1, 5, group=g2,
              tooltip="Previous Day High/Low — en güçlü likidite seviyesi")
 
@@ -65,8 +67,10 @@ g4 = "⚡ FİLTRELER"
 i_wt_n1     = input.int(10,  "WT Channel",     group=g4)
 i_wt_n2     = input.int(21,  "WT Average",     group=g4)
 i_rsi_len   = input.int(14,  "RSI",            group=g4)
-i_rvol_apex = input.float(2.5, "APEX Min RVOL", 0.5, 5, 0.1, group=g4)
-i_rvol_min  = input.float(1.8, "Normal Min RVOL", 0.5, 5, 0.1, group=g4)
+i_rvol_apex = input.float(1.5, "APEX Min RVOL", 0.5, 5, 0.1, group=g4,
+              tooltip="Apex sinyal için min RVOL. 1.5=ortalamanın %50 üstü (gerçekçi)")
+i_rvol_min  = input.float(0.8, "Normal Min RVOL", 0.3, 5, 0.1, group=g4,
+              tooltip="Normal hacim eşiği. 0.8=ortalamanın %80'i (gerçekçi — 1.8 çok katıydı)")
 i_cvd_len   = input.int(20, "CVD Pencere", group=g4)
 i_trend_filter = input.bool(true, "Trend Filtresi (Supertrend yönü)", group=g4,
                  tooltip="AÇIK=sadece supertrend yönünde sinyal (whipsaw azaltır, win rate artar) | KAPALI=her iki yön")
@@ -318,7 +322,7 @@ lc1_base = wt1 > wt1[1]                            // WaveTrend yukarı dönüyo
 lc1_plus = wt_xup or wt_bull_div                   // kesişim ya da uyumsuzluk
 lc1_pts  = lc1_plus ? 2 : lc1_base ? 1 : 0
 
-lc2_base = rsi < 55.0 and rsi > rsi[1]             // RSI dipten dönüyor, aşırı alım değil
+lc2_base = rsi < 65.0 and rsi > rsi[1]             // RSI dipten dönüyor — OTE'de 50-64 normal
 lc2_plus = rsi_os or rsi_bull_div
 lc2_pts  = lc2_plus ? 2 : lc2_base ? 1 : 0
 
@@ -334,7 +338,8 @@ lc5_base = mfi < 60.0                              // MFI aşırı alımda deği
 lc5_plus = mfi_bull or htf_fvg_bull
 lc5_pts  = lc5_plus ? 2 : lc5_base ? 1 : 0
 
-lc6_base = fvg_bull or ob_bull_cond or close > vwap_val   // yapı ya da VWAP üstü
+// ICT setup kendisi SMC onayıdır. OTE pullback'te VWAP altı olabilir — bu normal.
+lc6_base = ls >= 1 or fvg_bull or ob_bull_cond or close > vwap_val
 lc6_plus = sweep_bull_strong or pdl_sweep
 lc6_pts  = lc6_plus ? 2 : lc6_base ? 1 : 0
 
@@ -347,7 +352,7 @@ sc1_base = wt1 < wt1[1]                            // WaveTrend aşağı dönüy
 sc1_plus = wt_xdn or wt_bear_div
 sc1_pts  = sc1_plus ? 2 : sc1_base ? 1 : 0
 
-sc2_base = rsi > 45.0 and rsi < rsi[1]             // RSI tepeden dönüyor, aşırı satım değil
+sc2_base = rsi > 35.0 and rsi < rsi[1]             // RSI tepeden dönüyor — OTE'de 36-55 normal
 sc2_plus = rsi_ob or rsi_bear_div
 sc2_pts  = sc2_plus ? 2 : sc2_base ? 1 : 0
 
@@ -363,7 +368,8 @@ sc5_base = mfi > 40.0                              // MFI aşırı satımda değ
 sc5_plus = mfi_bear or htf_fvg_bear
 sc5_pts  = sc5_plus ? 2 : sc5_base ? 1 : 0
 
-sc6_base = fvg_bear or ob_bear_cond or close < vwap_val   // yapı ya da VWAP altı
+// ICT setup kendisi SMC onayıdır. OTE pullback'te VWAP üstü olabilir — bu normal.
+sc6_base = ss >= 1 or fvg_bear or ob_bear_cond or close < vwap_val
 sc6_plus = sweep_bear_strong or pdh_sweep
 sc6_pts  = sc6_plus ? 2 : sc6_base ? 1 : 0
 
@@ -372,7 +378,7 @@ s_onay_count = (sc1_pts > 0 ? 1 : 0) + (sc2_pts > 0 ? 1 : 0) + (sc3_pts > 0 ? 1 
                (sc4_pts > 0 ? 1 : 0) + (sc5_pts > 0 ? 1 : 0) + (sc6_pts > 0 ? 1 : 0)
 
 min_onay = i_mode == "APEX" ? 6 : i_mode == "SNIPER" ? 5 : 4
-min_pts  = i_mode == "APEX" ? 8 : i_mode == "SNIPER" ? 6 : 5
+min_pts  = i_mode == "APEX" ? 8 : i_mode == "SNIPER" ? 6 : 4
 
 is_apex_grade_l = l_onay_count >= 6 and l_total_pts >= 10
 is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
@@ -383,6 +389,7 @@ is_apex_grade_s = s_onay_count >= 6 and s_total_pts >= 10
 var int   ls            = 0
 var float l_swept       = na
 var float l_disp_top    = na
+var float l_swing_hi    = na   // sweep→MSS arası en yüksek fiyat (fib anchor)
 var float l_ote_hi      = na
 var float l_ote_lo      = na
 var int   l_pbar        = 0
@@ -391,6 +398,7 @@ var bool  l_ote_touched = false
 var int   ss            = 0
 var float s_swept       = na
 var float s_disp_bot    = na
+var float s_swing_lo    = na   // sweep→MSS arası en düşük fiyat (fib anchor)
 var float s_ote_lo      = na
 var float s_ote_hi      = na
 var int   s_pbar        = 0
@@ -416,14 +424,20 @@ if ss > 0 and (bar_index - s_pbar) > max_wait
 // LONG geçişleri
 if ls == 0
     l_ote_touched := false
+    l_swing_hi    := na
 // Trend yönü filtresi: LONG sadece 3 HTF birden düşüşteyse engellenir
 if ls == 0 and can_signal and sweep_bull_any and not macro_bear_apex and news_filter
-    ls      := 1
-    l_swept := low
-    l_pbar  := bar_index
+    ls         := 1
+    l_swept    := low
+    l_swing_hi := high
+    l_pbar     := bar_index
+
+// Sweep→MSS arası en yüksek high'ı takip et (doğru fib anchor için)
+if ls == 1
+    l_swing_hi := math.max(nz(l_swing_hi, high), high)
 
 if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_pbar) <= i_mss_bars
-    l_disp_top := close
+    l_disp_top := nz(l_swing_hi, high)
     fib_r       = l_disp_top - nz(l_swept, close - atr * 3.0)
     l_ote_hi   := l_disp_top - fib_r * 0.618
     l_ote_lo   := l_disp_top - fib_r * 0.786
@@ -450,14 +464,20 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
 // SHORT geçişleri
 if ss == 0
     s_ote_touched := false
+    s_swing_lo    := na
 // Trend yönü filtresi: SHORT sadece 3 HTF birden yükselişteyse engellenir
 if ss == 0 and can_signal and sweep_bear_any and not macro_bull_apex and news_filter
-    ss      := 1
-    s_swept := high
-    s_pbar  := bar_index
+    ss         := 1
+    s_swept    := high
+    s_swing_lo := low
+    s_pbar     := bar_index
+
+// Sweep→MSS arası en düşük low'u takip et (doğru fib anchor için)
+if ss == 1
+    s_swing_lo := math.min(nz(s_swing_lo, low), low)
 
 if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_pbar) <= i_mss_bars
-    s_disp_bot := close
+    s_disp_bot := nz(s_swing_lo, low)
     fib_r2      = nz(s_swept, close + atr * 3.0) - s_disp_bot
     s_ote_lo   := s_disp_bot + fib_r2 * 0.618
     s_ote_hi   := s_disp_bot + fib_r2 * 0.786
@@ -501,8 +521,18 @@ if i_show_ote
 // Trend filtresi: supertrend yönü ile uyumsuz sinyalleri ele (whipsaw azaltır)
 trend_long_ok  = (not i_trend_filter) or st_dir_t < 0
 trend_short_ok = (not i_trend_filter) or st_dir_t > 0
-av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok
-av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok
+
+// ATR kalite filtresi: SL mesafesi 0.15%–3% arasında olmalı
+// Çok dar = noise, çok geniş = kötü RR
+sl_dist_l   = close - (nz(l_swept, close - atr * 3.0) - atr * i_sl_buf)
+sl_dist_s   = (nz(s_swept, close + atr * 3.0) + atr * i_sl_buf) - close
+risk_pct_l  = sl_dist_l / close * 100.0
+risk_pct_s  = sl_dist_s / close * 100.0
+good_risk_l = risk_pct_l >= 0.15 and risk_pct_l <= 3.5
+good_risk_s = risk_pct_s >= 0.15 and risk_pct_s <= 3.5
+
+av_long_raw  = ls == 3 and l_onay_count >= min_onay and l_total_pts >= min_pts and can_signal and trend_long_ok  and good_risk_l
+av_short_raw = ss == 3 and s_onay_count >= min_onay and s_total_pts >= min_pts and can_signal and trend_short_ok and good_risk_s
 
 av_long  = av_long_raw  and not av_long_raw[1]
 av_short = av_short_raw and not av_short_raw[1]
