@@ -30,6 +30,7 @@ type FVG
     float bot
     int   bar
     bool  bull
+    box   bx
 
 // ===== INPUTS — ENGINE =====
 htf_tf     = input.timeframe("240", "HTF Timeframe", group = "Engine")
@@ -78,6 +79,16 @@ dash_size  = input.string("Normal", "Text size", options = ["Tiny","Small","Norm
 showSignals= input.bool(true, "Show entry arrows", group = "Dashboard")
 showLevels = input.bool(true, "Plot trade levels", group = "Dashboard")
 
+// ===== INPUTS — VISUALS (zones) =====
+drawFVG  = input.bool(true, "Draw FVG zones", group = "Visuals")
+drawLiq  = input.bool(true, "Draw liquidity levels", group = "Visuals")
+drawPD   = input.bool(true, "Draw Premium/Discount + OTE", group = "Visuals")
+colBull  = input.color(color.new(#26a69a, 80), "Bull FVG", group = "Visuals")
+colBear  = input.color(color.new(#ef5350, 80), "Bear FVG", group = "Visuals")
+
+// ===== INPUTS — WEBHOOK / ALERTS =====
+useWebhook = input.bool(false, "Fire JSON webhook alert on sniper", group = "Webhook")
+
 // ===== HELPERS =====
 maFn(src, len, t) => t == "EMA" ? ta.ema(src, len) : ta.sma(src, len)
 inSess(s) => na(time(timeframe.period, s, tz)) ? false : true
@@ -123,9 +134,11 @@ var array<FVG> fvgs = array.new<FVG>()
 bool newBull = bar_index > 1 and barstate.isconfirmed and low  > high[2] and (low - high[2]) >= atrVal * fvg_mult and disp
 bool newBear = bar_index > 1 and barstate.isconfirmed and high < low[2]  and (low[2] - high) >= atrVal * fvg_mult and disp
 if newBull
-    array.push(fvgs, FVG.new(low, high[2], bar_index, true))
+    box bx = drawFVG ? box.new(bar_index - 1, low, bar_index + 8, high[2], border_color = na, bgcolor = colBull) : na
+    array.push(fvgs, FVG.new(low, high[2], bar_index, true, bx))
 if newBear
-    array.push(fvgs, FVG.new(low[2], high, bar_index, false))
+    box bx = drawFVG ? box.new(bar_index - 1, low[2], bar_index + 8, high, border_color = na, bgcolor = colBear) : na
+    array.push(fvgs, FVG.new(low[2], high, bar_index, false, bx))
 bool bullFvgTap = false
 bool bearFvgTap = false
 if array.size(fvgs) > 0
@@ -140,11 +153,18 @@ if array.size(fvgs) > 0
 if array.size(fvgs) > 0
     for i = array.size(fvgs) - 1 to 0
         FVG f = array.get(fvgs, i)
+        // keep right edge of unmitigated boxes extending to the live bar
+        if drawFVG and not na(f.bx)
+            box.set_right(f.bx, bar_index + 8)
         bool mit = (f.bull and low <= f.bot) or ((not f.bull) and high >= f.top)
         if mit
+            if not na(f.bx)
+                box.delete(f.bx)
             array.remove(fvgs, i)
 while array.size(fvgs) > fvg_max
-    array.shift(fvgs)
+    FVG old = array.shift(fvgs)
+    if not na(old.bx)
+        box.delete(old.bx)
 
 // ===== LIQUIDITY SWEEPS =====
 float bslLvl   = ta.highest(high, liq_lb)[1]
@@ -323,6 +343,32 @@ plot(showLevels and sig ? pTp1  : na, "TP1",  color = color.new(#26a69a, 30), st
 plot(showLevels and sig ? pTp2  : na, "TP2",  color = color.new(#26a69a, 55), style = plot.style_linebr)
 plot(showLevels and sig ? pTp3  : na, "TP3",  color = color.new(#26a69a, 70), style = plot.style_linebr)
 plot(not na(poc) ? poc : na, "POC", color = color.new(#42a5f5, 20), style = plot.style_circles)
+
+// Liquidity levels (resting BSL/SSL)
+plot(drawLiq and not na(bslLvl) ? bslLvl : na, "BSL", color = color.new(#ef5350, 40), style = plot.style_circles)
+plot(drawLiq and not na(sslLvl) ? sslLvl : na, "SSL", color = color.new(#26a69a, 40), style = plot.style_circles)
+
+// Premium / Discount equilibrium + OTE band
+pEq = plot(drawPD and not na(rM) ? rM : na, "Equilibrium", color = color.new(color.gray, 30), style = plot.style_linebr)
+float oteHi = bull ? (not na(rng50) ? rH - rng50 * 0.62 : na) : (not na(rng50) ? rL + rng50 * 0.79 : na)
+float oteLo = bull ? (not na(rng50) ? rH - rng50 * 0.79 : na) : (not na(rng50) ? rL + rng50 * 0.62 : na)
+oHi = plot(drawPD and sig ? oteHi : na, "OTE hi", color = color.new(#ab47bc, 70))
+oLo = plot(drawPD and sig ? oteLo : na, "OTE lo", color = color.new(#ab47bc, 70))
+fill(oHi, oLo, color = color.new(#ab47bc, 88), title = "OTE zone")
+
+// ===== JSON WEBHOOK (bot / exchange integration) =====
+f_json(string dir) =>
+    '{"strategy":"APEX_v9","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period +
+     '","side":"' + dir + '","grade":"' + gradeTxt + '","score":' + str.tostring(dirScore) +
+     ',"entry":' + str.tostring(pEntry, format.mintick) + ',"stop":' + str.tostring(pStop, format.mintick) +
+     ',"tp1":' + str.tostring(pTp1, format.mintick) + ',"tp2":' + str.tostring(pTp2, format.mintick) +
+     ',"tp3":' + str.tostring(pTp3, format.mintick) + ',"qty":' + str.tostring(qtyHint, "#.######") +
+     ',"risk_pct":' + str.tostring(riskPct) + '}'
+if useWebhook and barstate.isconfirmed
+    if sniperLong
+        alert(f_json("long"), alert.freq_once_per_bar_close)
+    if sniperShort
+        alert(f_json("short"), alert.freq_once_per_bar_close)
 
 // ===== DASHBOARD =====
 f_chk(bool b) => b ? "✔" : "✘"
