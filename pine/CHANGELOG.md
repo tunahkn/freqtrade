@@ -9,7 +9,8 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 | Sürüm | Tarih | Commit | Durum | Not |
 |-------|-------|--------|-------|-----|
-| v9.1  | 2026-05-31 | `3e4ac71` | 🧪 test | Çıkış modeli düzeltmesi |
+| v9.2  | 2026-05-31 | TBD    | 🧪 test | Short rejim filtresi (200 EMA) |
+| v9.1  | 2026-05-31 | `3e4ac71` | ⬅ eski | Çıkış modeli düzeltmesi |
 | v9.0  | 2026-05-30 | `fcd9f79` | ⬅ eski | İlk v9 |
 
 ---
@@ -43,7 +44,30 @@ Bulgu: timeframe yükseldikçe iyileşiyor (15dk PF 0.82 → 1H 0.99 → 4H 1.30
 
 ---
 
-## [v9.1] — 2026-05-31  (commit `3e4ac71`)  ← EN SON GÜNCELLEME
+## [v9.2] — 2026-05-31  ← EN SON GÜNCELLEME
+**Sorun:** OOS döneminde (Jan 2023 – May 2026, ETH +61%) Short PF 0.87 — yükseliş trendinde short açıyor.
+Teşhis: short sinyali rejim körü; fiyat 200 EMA üstündeyken de short açıyor → negatif alpha.
+
+**Değişiklikler (`pine/APEX_SNIPER_v9.pine`):**
+- Yeni input `useShortRegime` (default **on**): kısa pozisyon yalnızca fiyat rejim EMA altındayken açılır
+- Yeni input `shortEmaLen` (default **200**): rejim EMA periyodu
+- `shortRegiOK = not useShortRegime or close < shortRegEma` koşulu `goShort`'a eklendi
+- Info tablosuna "Short regime" satırı eklendi (BELOW EMA / BLOCKED / OFF)
+
+**Test yapılacaklar (v9.2):**
+- [ ] ETH/USDT 4H — tam döngü (2019-11 → 2026-05), Short rejim filtresi ON
+- [ ] BTC/USDT 4H — çapraz varlık (aynı parametreler)
+- [ ] SOL/USDT 4H — çapraz varlık (aynı parametreler)
+
+**Bekleyen kapılar:**
+- ❓ Short rejim filtresiyle OOS Short PF > 1 mi?
+- ❓ BTC cross-asset PF > 1?
+- ❓ SOL cross-asset PF > 1?
+- ❌ B&H'yi geçme (ETH 4H PF 1.30 henüz geçemiyor)
+
+---
+
+## [v9.1] — 2026-05-31  (commit `3e4ac71`)
 **Sorun:** ETH 1h gerçek testte (162 işlem) PF 0.745, −%8.92 → negatif edge.
 Teşhis: kademeli TP kazananı erken kesiyor, stop tam boyutta → "cut winners short".
 

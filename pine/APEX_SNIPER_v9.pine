@@ -82,6 +82,8 @@ watch_th   = input.int(10,  "Watch threshold",  minval = 1, maxval = 20, group =
 minCats    = input.int(3,   "Min categories", minval = 1, maxval = 4, group = "Scoring")
 setup_win  = input.int(10,  "Setup memory window (bars)", minval = 1, maxval = 50, group = "Scoring")
 gradeAB    = input.bool(true, "Only Grade A/B entries", group = "Scoring")
+useShortRegime = input.bool(true,  "Short only below regime EMA (OOS fix)", group = "Scoring")
+shortEmaLen    = input.int(200, "Short regime EMA length", minval = 10, maxval = 500, group = "Scoring")
 
 // ===== RISK / EXIT =====
 riskPct    = input.float(1.0, "Risk per trade (% equity)", minval = 0.05, maxval = 10, group = "Risk & Exit")
@@ -129,6 +131,7 @@ bool  biasShort   = not na(htfClose) and not na(htfMa) and htfClose < htfMa
 Direction biasDir = biasLong ? Direction.long : biasShort ? Direction.short : Direction.neutral
 
 float atrVal = ta.atr(14)
+float shortRegEma = ta.ema(close, shortEmaLen)
 
 // ===== SWINGS + STRUCTURE =====
 float ph = ta.pivothigh(high, swing_len, swing_len)
@@ -363,8 +366,9 @@ var float eTp3   = na
 var int   eBar   = na
 
 // ===== ENTRIES =====
+bool shortRegiOK = not useShortRegime or (not na(shortRegEma) and close < shortRegEma)
 goLong  = sniperLong  and strategy.position_size == 0 and canTrade
-goShort = sniperShort and strategy.position_size == 0 and canTrade
+goShort = sniperShort and strategy.position_size == 0 and canTrade and shortRegiOK
 float qty = f_qty()
 
 if goLong and not na(qty)
@@ -440,7 +444,7 @@ plot(strategy.position_size != 0 ? eTp2 : na,  "TP2",  color = color.new(#26a69a
 plot(strategy.position_size != 0 ? eTp3 : na,  "TP3",  color = color.new(#26a69a, 70), style = plot.style_linebr)
 
 // ===== INFO TABLE =====
-var table info = table.new(position.top_right, 2, 6, border_width = 1)
+var table info = table.new(position.top_right, 2, 7, border_width = 1)
 if barstate.islast
     table.cell(info, 0, 0, "APEX v9", text_color = color.white, bgcolor = color.new(color.blue, 0))
     table.cell(info, 1, 0, str.tostring(regime), text_color = color.white, bgcolor = color.new(color.blue, 0))
@@ -448,9 +452,11 @@ if barstate.islast
     table.cell(info, 1, 1, str.tostring(longScore) + " (" + str.tostring(lCats) + " cat)", text_color = longScore >= sniper_th ? color.green : color.gray)
     table.cell(info, 0, 2, "Short score", text_color = color.gray)
     table.cell(info, 1, 2, str.tostring(shortScore) + " (" + str.tostring(sCats) + " cat)", text_color = shortScore >= sniper_th ? color.red : color.gray)
-    table.cell(info, 0, 3, "Day PnL %",   text_color = color.gray)
-    table.cell(info, 1, 3, str.tostring(dayPnlPct, "#.##"), text_color = dayPnlPct >= 0 ? color.green : color.red)
-    table.cell(info, 0, 4, "Consec loss", text_color = color.gray)
-    table.cell(info, 1, 4, str.tostring(consecLoss), text_color = lossHalt ? color.red : color.gray)
-    table.cell(info, 0, 5, "Trading",     text_color = color.gray)
-    table.cell(info, 1, 5, canTrade ? "ON" : "HALTED", text_color = canTrade ? color.green : color.red)
+    table.cell(info, 0, 3, "Short regime", text_color = color.gray)
+    table.cell(info, 1, 3, not useShortRegime ? "OFF" : shortRegiOK ? "BELOW EMA" : "BLOCKED", text_color = not useShortRegime ? color.gray : shortRegiOK ? color.red : color.new(color.gray, 50))
+    table.cell(info, 0, 4, "Day PnL %",   text_color = color.gray)
+    table.cell(info, 1, 4, str.tostring(dayPnlPct, "#.##"), text_color = dayPnlPct >= 0 ? color.green : color.red)
+    table.cell(info, 0, 5, "Consec loss", text_color = color.gray)
+    table.cell(info, 1, 5, str.tostring(consecLoss), text_color = lossHalt ? color.red : color.gray)
+    table.cell(info, 0, 6, "Trading",     text_color = color.gray)
+    table.cell(info, 1, 6, canTrade ? "ON" : "HALTED", text_color = canTrade ? color.green : color.red)
