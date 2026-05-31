@@ -191,30 +191,75 @@ def stats(trades, final_eq, start=10000.0):
     return "\n".join(out)
 
 
+def benchmark(df, trades, final_eq, start=10000.0):
+    """Does the strategy beat doing nothing clever?
+
+    Compares the strategy return against passive buy&hold and passive short&hold.
+    For a short-biased strategy in a downtrend, the honest question is:
+    did it capture more than just *shorting and holding*? If not, the SMC
+    machinery is destroying value, not adding it.
+    """
+    c = df["close"].values
+    bh = (c[-1] / c[0] - 1) * 100.0            # buy & hold
+    sh = (c[0] - c[-1]) / c[0] * 100.0          # passive short & hold (unleveraged)
+    strat = (final_eq - start) / start * 100.0
+    longs = sum(1 for t in trades if t["long"])
+    shorts = len(trades) - longs
+    short_biased = shorts >= longs
+    bench = sh if short_biased else bh
+    bench_name = "Short & hold" if short_biased else "Buy & hold"
+    capture = (strat / bench * 100.0) if bench != 0 else float("nan")
+
+    out = ["", "=== BENCHMARK ==="]
+    out.append(f"  Buy & hold        : {bh:+.2f}%")
+    out.append(f"  Short & hold      : {sh:+.2f}%")
+    out.append(f"  Strategy          : {strat:+.2f}%  (bias: {'SHORT' if short_biased else 'LONG'})")
+    out.append(f"  Capture vs {bench_name:<12}: {capture:.1f}%  "
+               f"(strategy / passive {'short' if short_biased else 'long'})")
+    if bench > 0 and strat < bench:
+        out.append(f"  VERDICT           : ❌ passive {bench_name} (+{bench:.1f}%) BEAT the strategy "
+                   f"(+{strat:.1f}%). No directional alpha — the move did the work, not the signals.")
+    elif bench > 0 and strat >= bench:
+        out.append(f"  VERDICT           : ✅ strategy beat passive {bench_name}. Possible real edge — "
+                   f"now confirm on other assets / out-of-sample.")
+    else:
+        out.append(f"  VERDICT           : passive benchmark was negative; "
+                   f"compare on a market that moved the other way too.")
+    return "\n".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("feather")
     ap.add_argument("--fee", type=float, default=0.05)
     ap.add_argument("--slip", type=float, default=0.02)
-    ap.add_argument("--atr-m", type=float, default=1.5)
-    ap.add_argument("--rr", type=float, default=1.5)
+    ap.add_argument("--atr-m", type=float, default=1.0)
+    ap.add_argument("--rr", type=float, default=4.0)
     ap.add_argument("--risk", type=float, default=1.0)
     ap.add_argument("--no-long", action="store_true")
     ap.add_argument("--no-short", action="store_true")
     ap.add_argument("--sniper-th", type=int, default=14)
+    ap.add_argument("--min-cats", type=int, default=2)
+    ap.add_argument("--swing-len", type=int, default=8)
+    ap.add_argument("--scaleout", action="store_true")
+    ap.add_argument("--no-trail", action="store_true")
     args = ap.parse_args()
 
     df = pd.read_feather(args.feather)
-    df = apex_engine.compute(df, {"sniper_th": args.sniper_th})
+    df = apex_engine.compute(df, {"sniper_th": args.sniper_th,
+                                  "min_cats": args.min_cats,
+                                  "swing_len": args.swing_len})
 
     print(f"Data: {Path(args.feather).name}  bars={len(df)}  "
           f"{df['date'].min()} -> {df['date'].max()}")
     print(f"Signals: long={int(df['enter_long'].sum())}  short={int(df['enter_short'].sum())}")
     trades, final_eq = simulate(
         df, fee=args.fee, slip=args.slip, atr_m=args.atr_m, rr=args.rr,
-        risk_pct=args.risk, allow_long=not args.no_long, allow_short=not args.no_short)
+        risk_pct=args.risk, allow_long=not args.no_long, allow_short=not args.no_short,
+        scaleout=args.scaleout, trail=not args.no_trail)
     print("-" * 50)
     print(stats(trades, final_eq))
+    print(benchmark(df, trades, final_eq))
 
 
 if __name__ == "__main__":
