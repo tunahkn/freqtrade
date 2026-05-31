@@ -14,6 +14,35 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ---
 
+## 📒 DOĞRULAMA GÜNLÜĞÜ
+
+### 2026-05-31 — ETH 4H, TAM DÖNGÜ (2019-11 → 2026-05, 6.5 yıl) ⭐ KİLOMETRE TAŞI
+Ayarlar: 24/7 (kill-zone kapalı), sniper=11, 4H, long+short açık, trailing exit.
+
+| Metrik | Strateji | Buy & Hold | Sonuç |
+|--------|----------|------------|-------|
+| Getiri | +159% | +1.481% | B&H 9.3x önde |
+| Max DD | −25.9% | ~−70% | Strateji daha düşük |
+| Getiri/DD (MAR) | 6.1 | 21.2 | B&H ~3.5x önde (risk-ayarlı bile) |
+| Profit Factor | 1.30 | — | ✅ pozitif edge |
+| İşlem | 424 | — | ✅ istatistiksel anlamlı |
+| Long PF | 1.61 | | |
+| Short PF | 1.01 | | başabaş |
+
+**Verdict:** Meşru, pozitif-edge'li trend takipçisi (tam döngüde ayakta kaldı, cherry-pick değil).
+Ama ETH al-tut'u risk-ayarlı bile geçemiyor (ETH 6.5y'de ~16x). Değer = düşük DD'li
+trend takibi; niş kullanım (16x yapmayan varlıklar, DD'ye duyarlı sermaye, portföy parçası).
+⚠️ Kaldıraç açığı KAPATMAZ — getiriyi de DD'yi de büyütür (3x → DD ~−78%, iflas riski).
+
+**Geçilen kapılar:** ✅ Tam dönem  ✅ PF>1.3 (sınırda)  ❌ B&H'yi geçme
+**Bekleyen kapılar:** ❓ OOS bölmesi (2019-2023 train / 2023-2026 test)  ❓ BTC+SOL çapraz
+
+### 2026-05-31 — ETH 1H optimizasyon (önceki)
+Net −0.25%, PF 0.99, 30 işlem. Short +5.71% ama pasif short-hold +42.5% → yakalama %13 (negatif alfa).
+Bulgu: timeframe yükseldikçe iyileşiyor (15dk PF 0.82 → 1H 0.99 → 4H 1.30). Session filtresi kriptoda zararlı.
+
+---
+
 ## [v9.1] — 2026-05-31  (commit `3e4ac71`)  ← EN SON GÜNCELLEME
 **Sorun:** ETH 1h gerçek testte (162 işlem) PF 0.745, −%8.92 → negatif edge.
 Teşhis: kademeli TP kazananı erken kesiyor, stop tam boyutta → "cut winners short".
