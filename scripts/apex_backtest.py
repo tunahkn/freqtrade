@@ -27,9 +27,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "user_data" / "stra
 import apex_engine  # noqa: E402
 
 
-def simulate(df, fee=0.05, slip=0.02, atr_m=1.5, rr=1.5, risk_pct=1.0,
-             fee_buf=0.12, allow_long=True, allow_short=True):
-    """Bar-by-bar simulation. Risk-based sizing: each trade risks risk_pct of equity."""
+def simulate(df, fee=0.05, slip=0.02, atr_m=1.5, rr=2.0, risk_pct=1.0,
+             fee_buf=0.12, allow_long=True, allow_short=True,
+             scaleout=False, trail=True, trail_atr_m=2.5, trail_start=1.0):
+    """Bar-by-bar simulation. Risk-based sizing: each trade risks risk_pct of equity.
+
+    Exit model (v9.1):
+      scaleout=True  -> original tiered thirds at TP1/TP2/TP3
+      scaleout=False -> single position; trailing ATR stop (trail=True) lets
+                        winners run, otherwise fixed stop + TP3.
+    """
     fee_f = fee / 100.0
     slip_f = slip / 100.0
     equity = 10000.0
@@ -44,9 +51,17 @@ def simulate(df, fee=0.05, slip=0.02, atr_m=1.5, rr=1.5, risk_pct=1.0,
         # ---- manage open position on this bar ----
         if pos is not None:
             long = pos["long"]
-            # check stop first (conservative), then TPs in order
-            closed_qty = 0.0
-            # STOP
+            sd = pos["sd"]
+            # update running extreme + ATR trailing stop (ratchet only)
+            pos["run_hi"] = max(pos["run_hi"], h[i])
+            pos["run_lo"] = min(pos["run_lo"], l[i])
+            r_now = (c[i] - pos["entry"]) / sd if long else (pos["entry"] - c[i]) / sd
+            if trail and r_now >= trail_start and not np.isnan(atr[i]):
+                cand = (pos["run_hi"] - atr[i] * trail_atr_m) if long \
+                    else (pos["run_lo"] + atr[i] * trail_atr_m)
+                pos["stop"] = max(pos["stop"], cand) if long else min(pos["stop"], cand)
+
+            # STOP first (conservative)
             stop_hit = (l[i] <= pos["stop"]) if long else (h[i] >= pos["stop"])
             if stop_hit:
                 px = pos["stop"] * (1 - slip_f if long else 1 + slip_f)
@@ -54,26 +69,34 @@ def simulate(df, fee=0.05, slip=0.02, atr_m=1.5, rr=1.5, risk_pct=1.0,
                 equity += pos["realized"]
                 pos = None
                 continue
-            # TP ladder
-            for k, tp in enumerate(("tp1", "tp2", "tp3")):
-                if pos["done"][k]:
+
+            if scaleout:
+                for k, tp in enumerate(("tp1", "tp2", "tp3")):
+                    if pos["done"][k]:
+                        continue
+                    hit = (h[i] >= pos[tp]) if long else (l[i] <= pos[tp])
+                    if not hit:
+                        break
+                    qty = min(pos["qty0"] * pos["frac"][k], pos["qty_rem"])
+                    px = pos[tp] * (1 - slip_f if long else 1 + slip_f)
+                    _partial(pos, px, qty, fee_f, long)
+                    pos["done"][k] = True
+                    pos["qty_rem"] -= qty
+                    if k == 0:
+                        buf = pos["entry"] * fee_buf / 100.0
+                        pos["stop"] = pos["entry"] + buf if long else pos["entry"] - buf
+                    if pos["qty_rem"] <= 1e-12:
+                        break
+            elif not trail:
+                # fixed TP3 target for whole position
+                hit = (h[i] >= pos["tp3"]) if long else (l[i] <= pos["tp3"])
+                if hit:
+                    px = pos["tp3"] * (1 - slip_f if long else 1 + slip_f)
+                    _book(pos, px, pos["qty_rem"], fee_f, trades, i)
+                    equity += pos["realized"]
+                    pos = None
                     continue
-                hit = (h[i] >= pos[tp]) if long else (l[i] <= pos[tp])
-                if not hit:
-                    break
-                frac = pos["frac"][k]
-                qty = pos["qty0"] * frac
-                qty = min(qty, pos["qty_rem"])
-                px = pos[tp] * (1 - slip_f if long else 1 + slip_f)
-                _partial(pos, px, qty, fee_f, long)
-                pos["done"][k] = True
-                pos["qty_rem"] -= qty
-                # fee-aware breakeven after TP1
-                if k == 0:
-                    buf = pos["entry"] * fee_buf / 100.0
-                    pos["stop"] = pos["entry"] + buf if long else pos["entry"] - buf
-                if pos["qty_rem"] <= 1e-12:
-                    break
+
             if pos is not None and pos["qty_rem"] <= 1e-12:
                 equity += pos["realized"]
                 trades.append(_finalize(pos, i))
@@ -97,9 +120,10 @@ def simulate(df, fee=0.05, slip=0.02, atr_m=1.5, rr=1.5, risk_pct=1.0,
                 tp1 = entry + sd * rr if long else entry - sd * rr
                 tp2 = entry + sd * rr * 2 if long else entry - sd * rr * 2
                 tp3 = entry + sd * rr * 3 if long else entry - sd * rr * 3
-                pos = dict(long=long, entry=entry, stop=stop, tp1=tp1, tp2=tp2, tp3=tp3,
+                pos = dict(long=long, entry=entry, stop=stop, sd=sd, tp1=tp1, tp2=tp2, tp3=tp3,
                            qty0=qty0, qty_rem=qty0, frac=[0.3333, 0.3333, 0.3334],
                            done=[False, False, False], realized=0.0, ebar=i + 1,
+                           run_hi=o[i + 1], run_lo=o[i + 1],
                            entry_fee=entry * qty0 * fee_f)
                 pos["realized"] -= pos["entry_fee"]
 

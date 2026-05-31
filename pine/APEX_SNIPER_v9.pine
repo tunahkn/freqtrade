@@ -86,10 +86,15 @@ gradeAB    = input.bool(true, "Only Grade A/B entries", group = "Scoring")
 // ===== RISK / EXIT =====
 riskPct    = input.float(1.0, "Risk per trade (% equity)", minval = 0.05, maxval = 10, group = "Risk & Exit")
 atr_stop_m = input.float(1.5, "ATR Stop multiplier", minval = 0.1, group = "Risk & Exit")
-rr_target  = input.float(1.5, "R multiple per TP step", minval = 0.5, group = "Risk & Exit")
+rr_target  = input.float(2.0, "R multiple per TP step", minval = 0.5, group = "Risk & Exit")
 use_be     = input.bool(true, "Move stop to breakeven after TP1", group = "Risk & Exit")
 feeBufPct  = input.float(0.12, "Round-trip fee+slip buffer % (for BE)", minval = 0.0, group = "Risk & Exit")
 maxBarsIn  = input.int(0, "Time stop (bars, 0=off)", minval = 0, group = "Risk & Exit")
+// --- exit model (v9.1: fixes the "cut winners short" negative edge) ---
+useScaleOut = input.bool(false, "Scale out 1/3 at TP1/TP2 (off = let winner run)", group = "Exit Model")
+useTrail    = input.bool(true,  "ATR trailing stop (let winners run)", group = "Exit Model")
+trailAtrM   = input.float(2.5, "Trailing ATR multiplier", minval = 0.5, group = "Exit Model")
+trailStart  = input.float(1.0, "Start trailing after R multiple", minval = 0.0, group = "Exit Model")
 
 // --- Risk guards ---
 maxDayLossPct = input.float(3.0, "Max daily loss % (0=off)", minval = 0.0, group = "Risk Guards")
@@ -389,15 +394,37 @@ if use_be and tp1Hit and not beMoved and strategy.position_size != 0
     eStop := strategy.position_size > 0 ? eEntry + buf : eEntry - buf
     beMoved := true
 
-// ===== EXITS (tiered thirds + stop) =====
+// ===== ATR TRAILING STOP (let winners run) =====
+var float runHi = na
+var float runLo = na
+if strategy.position_size == 0
+    runHi := na
+    runLo := na
+else
+    runHi := na(runHi) ? high : math.max(runHi, high)
+    runLo := na(runLo) ? low  : math.min(runLo, low)
+float rNow = (strategy.position_size != 0 and not na(eEntry) and stopDist > 0) ? (strategy.position_size > 0 ? (close - eEntry) / stopDist : (eEntry - close) / stopDist) : 0.0
+if useTrail and strategy.position_size != 0 and rNow >= trailStart
+    float cand = strategy.position_size > 0 ? runHi - atrVal * trailAtrM : runLo + atrVal * trailAtrM
+    eStop := strategy.position_size > 0 ? math.max(eStop, cand) : math.min(eStop, cand)
+
+// ===== EXITS =====
+// Scale-out OFF (default): single position, let the trailing stop / TP3 manage it.
+// Scale-out ON: original tiered thirds. Stop is always the (trailing/BE) eStop.
 if strategy.position_size > 0
-    strategy.exit("L-tp1", from_entry = "L", qty_percent = 33, limit = eTp1, stop = eStop)
-    strategy.exit("L-tp2", from_entry = "L", qty_percent = 50, limit = eTp2, stop = eStop)
-    strategy.exit("L-tp3", from_entry = "L", limit = eTp3, stop = eStop)
+    if useScaleOut
+        strategy.exit("L-tp1", from_entry = "L", qty_percent = 33, limit = eTp1, stop = eStop)
+        strategy.exit("L-tp2", from_entry = "L", qty_percent = 50, limit = eTp2, stop = eStop)
+        strategy.exit("L-tp3", from_entry = "L", limit = eTp3, stop = eStop)
+    else
+        strategy.exit("L-x", from_entry = "L", stop = eStop, limit = useTrail ? na : eTp3)
 if strategy.position_size < 0
-    strategy.exit("S-tp1", from_entry = "S", qty_percent = 33, limit = eTp1, stop = eStop)
-    strategy.exit("S-tp2", from_entry = "S", qty_percent = 50, limit = eTp2, stop = eStop)
-    strategy.exit("S-tp3", from_entry = "S", limit = eTp3, stop = eStop)
+    if useScaleOut
+        strategy.exit("S-tp1", from_entry = "S", qty_percent = 33, limit = eTp1, stop = eStop)
+        strategy.exit("S-tp2", from_entry = "S", qty_percent = 50, limit = eTp2, stop = eStop)
+        strategy.exit("S-tp3", from_entry = "S", limit = eTp3, stop = eStop)
+    else
+        strategy.exit("S-x", from_entry = "S", stop = eStop, limit = useTrail ? na : eTp3)
 
 // ===== TIME STOP =====
 if maxBarsIn > 0 and strategy.position_size != 0 and not na(eBar) and (bar_index - eBar) >= maxBarsIn
