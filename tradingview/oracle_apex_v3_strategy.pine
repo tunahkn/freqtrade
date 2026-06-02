@@ -89,16 +89,22 @@ trending = er > 0.40
 adx_strong = adx_val > i_adx_min
 vwap_val   = ta.vwap(hlc3)
 ticker_clean = str.replace(syminfo.tickerid, ".P", "")
-htf_w_bull  = request.security(ticker_clean, i_htf_w,  hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-htf_d_bull  = request.security(ticker_clean, i_htf_d,  hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-htf_h4_bull = request.security(ticker_clean, i_htf_h4, hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-// na koruma: Pine'da `not na = true` oldugundan na deger macro_bear'i yanlis tetikler.
-// Haftalik HMA ~110 bar (2 yil) isinma ister → bu sure zarfinda tum LONG'lar yanlis bloklanir.
-// Cozum: na ise alt zaman dilimine (W→D→4H→mevcut HMA) geri don. nz() bool kabul etmedigi
-// icin acik na() kontrolu kullaniyoruz.
-_htf_w  = na(htf_w_bull)  ? (na(htf_d_bull)  ? hma_up : htf_d_bull)  : htf_w_bull
-_htf_d  = na(htf_d_bull)  ? (na(htf_h4_bull) ? hma_up : htf_h4_bull) : htf_d_bull
-_htf_h4 = na(htf_h4_bull) ? hma_up : htf_h4_bull
+// Pine v6: na()/nz() bool kabul etmez; float (1.0/0.0) olarak request et, na kontrolu float'ta yap.
+// Haftalik HMA ~110 bar isinma ister → bu sure zarfinda na gelir → W→D→4H→mevcut HMA fall-back.
+htf_w_f  = request.security(ticker_clean, i_htf_w,  hma_up ? 1.0 : 0.0, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+htf_d_f  = request.security(ticker_clean, i_htf_d,  hma_up ? 1.0 : 0.0, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+htf_h4_f = request.security(ticker_clean, i_htf_h4, hma_up ? 1.0 : 0.0, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+_hma_f   = hma_up ? 1.0 : 0.0
+_w_f     = na(htf_w_f)  ? (na(htf_d_f)  ? _hma_f : htf_d_f)  : htf_w_f
+_d_f     = na(htf_d_f)  ? (na(htf_h4_f) ? _hma_f : htf_h4_f) : htf_d_f
+_h4_f    = na(htf_h4_f) ? _hma_f : htf_h4_f
+_htf_w   = _w_f  > 0.5
+_htf_d   = _d_f  > 0.5
+_htf_h4  = _h4_f > 0.5
+// eski isim uyumu (FVG seksiyon bunlari kullanmiyor ama tutarlilik icin)
+htf_w_bull  = _htf_w
+htf_d_bull  = _htf_d
+htf_h4_bull = _htf_h4
 macro_bull_apex = _htf_w  and _htf_d  and _htf_h4
 macro_bear_apex = not _htf_w and not _htf_d and not _htf_h4
 macro_bull_norm = (_htf_w ? 1 : 0) + (_htf_d ? 1 : 0) + (_htf_h4 ? 1 : 0) >= 2
