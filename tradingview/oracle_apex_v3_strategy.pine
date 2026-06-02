@@ -22,7 +22,7 @@ C_SEP    = #141e35
 
 // INPUTS
 g0 = "GENEL"
-i_mode      = input.string("APEX",      "Mod",            options=["APEX","SNIPER","PRECISION"], group=g0)
+i_mode      = input.string("SNIPER",    "Mod",            options=["APEX","SNIPER","PRECISION"], group=g0)
 i_lev       = input.float(5.0,  "Kaldirac x",    1, 125, 0.5, group=g0)
 i_risk      = input.float(1.0,  "Risk %",        0.1, 5, 0.1, group=g0)
 i_daily_max = input.int(4,      "Gunluk Max Sinyal", 1, 10,   group=g0)
@@ -92,11 +92,17 @@ ticker_clean = str.replace(syminfo.tickerid, ".P", "")
 htf_w_bull  = request.security(ticker_clean, i_htf_w,  hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 htf_d_bull  = request.security(ticker_clean, i_htf_d,  hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 htf_h4_bull = request.security(ticker_clean, i_htf_h4, hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-macro_bull_apex = htf_w_bull and htf_d_bull and htf_h4_bull
-macro_bear_apex = not htf_w_bull and not htf_d_bull and not htf_h4_bull
-macro_bull_norm = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0) >= 2
-macro_bear_norm = ((not htf_w_bull) ? 1 : 0) + ((not htf_d_bull) ? 1 : 0) + ((not htf_h4_bull) ? 1 : 0) >= 2
-mtf_score = (htf_w_bull ? 1 : 0) + (htf_d_bull ? 1 : 0) + (htf_h4_bull ? 1 : 0)
+// na koruma: Pine'da `not na = true` oldugundan na deger macro_bear'i yanlis tetikler.
+// Haftalik HMA ~110 bar (2 yil) isinma ister → bu sure zarfinda tum LONG'lar yanlis bloklanir.
+// Cozum: na ise alt zaman dilimine (W→D→4H→mevcut HMA) geri don.
+_htf_w  = nz(htf_w_bull,  nz(htf_d_bull,  hma_up))
+_htf_d  = nz(htf_d_bull,  nz(htf_h4_bull, hma_up))
+_htf_h4 = nz(htf_h4_bull, hma_up)
+macro_bull_apex = _htf_w  and _htf_d  and _htf_h4
+macro_bear_apex = not _htf_w and not _htf_d and not _htf_h4
+macro_bull_norm = (_htf_w ? 1 : 0) + (_htf_d ? 1 : 0) + (_htf_h4 ? 1 : 0) >= 2
+macro_bear_norm = (not _htf_w ? 1 : 0) + (not _htf_d ? 1 : 0) + (not _htf_h4 ? 1 : 0) >= 2
+mtf_score = (_htf_w ? 1 : 0) + (_htf_d ? 1 : 0) + (_htf_h4 ? 1 : 0)
 
 // ══ BOLUM 2: PDH/PDL ══
 [pdh, pdl] = request.security(ticker_clean, "D", [high[i_pdh_len], low[i_pdh_len]], lookahead=barmerge.lookahead_off)
@@ -311,7 +317,7 @@ if ss > 0 and (bar_index - s_pbar) > max_wait
 if ls == 0
     l_ote_touched := false
     l_swing_hi    := na
-if ls == 0 and can_signal and sweep_bull_any and not macro_bear_apex and news_filter
+if ls == 0 and can_signal and sweep_bull_any and macro_bull_norm and news_filter
     ls         := 1
     l_swept    := low
     l_swing_hi := high
@@ -341,7 +347,7 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and (bar_index - l_pbar) <=
 if ss == 0
     s_ote_touched := false
     s_swing_lo    := na
-if ss == 0 and can_signal and sweep_bear_any and not macro_bull_apex and news_filter
+if ss == 0 and can_signal and sweep_bear_any and macro_bear_norm and news_filter
     ss         := 1
     s_swept    := high
     s_swing_lo := low
@@ -524,7 +530,7 @@ dc_c(int r, int c, string t, color tc, color bc) =>
 if i_dash and barstate.islast
     SEP    = color.new(C_SEP, 0)
     mtf_sc = mtf_score >= 3 ? C_APEX : mtf_score >= 2 ? C_GOLD : C_BEAR
-    mtf_t  = "W:" + (htf_w_bull ? "+" : "-") + " D:" + (htf_d_bull ? "+" : "-") + " 4H:" + (htf_h4_bull ? "+" : "-") + " (" + str.tostring(mtf_score) + "/3)"
+    mtf_t  = "W:" + (_htf_w ? "+" : "-") + " D:" + (_htf_d ? "+" : "-") + " 4H:" + (_htf_h4 ? "+" : "-") + " (" + str.tostring(mtf_score) + "/3)"
     l_s    = ls == 0 ? (expr_l_cond ? "EXPRESS RDY" : "IDLE") : ls == 1 ? "SWEPT" : ls == 2 ? "MSS/OTE" : "OTE READY"
     s_s    = ss == 0 ? (expr_s_cond ? "EXPRESS RDY" : "IDLE") : ss == 1 ? "SWEPT" : ss == 2 ? "MSS/OTE" : "OTE READY"
     l_sc   = ls == 3 ? C_APEX  : ls > 0 ? C_GOLD   : color.new(C_GRAY, 30)
