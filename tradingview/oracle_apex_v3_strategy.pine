@@ -27,6 +27,7 @@ i_lev       = input.float(5.0,  "Kaldirac x",    1, 125, 0.5, group=g0)
 i_risk      = input.float(1.0,  "Risk %",        0.1, 5, 0.1, group=g0)
 i_daily_max = input.int(4,      "Gunluk Max Sinyal", 1, 10,   group=g0)
 i_expr_only = input.bool(false, "Sadece Express Sinyal", group=g0)
+i_dir       = input.string("Long", "Yon", options=["Long","Short","Both"], group=g0)
 
 g1 = "TREND MTF"
 i_htf_w  = input.string("W",   "HTF 1", options=["W","D"],    group=g1)
@@ -406,8 +407,11 @@ express_short = expr_s_cond and not expr_s_cond[1]
 // i_expr_only = true ise sadece express sinyalleri kullan
 ict_long_use  = i_expr_only ? false : ict_long
 ict_short_use = i_expr_only ? false : ict_short
-av_long  = ict_long_use  or express_long
-av_short = ict_short_use or express_short
+av_long_raw  = ict_long_use  or express_long
+av_short_raw = ict_short_use or express_short
+// Yon filtresi: BTC/ETH yapisal yukselis trendi nedeniyle backtest'te SADECE LONG cok daha karli
+av_long  = (i_dir == "Short") ? false : av_long_raw
+av_short = (i_dir == "Long")  ? false : av_short_raw
 var bool is_express = false
 if av_long
     is_express := express_long
