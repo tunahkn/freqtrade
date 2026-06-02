@@ -27,7 +27,7 @@ i_lev       = input.float(5.0,  "Kaldirac x",    1, 125, 0.5, group=g0)
 i_risk      = input.float(1.0,  "Risk %",        0.1, 5, 0.1, group=g0)
 i_daily_max = input.int(4,      "Gunluk Max Sinyal", 1, 10,   group=g0)
 i_expr_only = input.bool(false, "Sadece Express Sinyal", group=g0)
-i_dir       = input.string("Both", "Yon", options=["Long","Short","Both"], group=g0)
+i_dir       = input.string("Long", "Yon", options=["Long","Short","Both"], group=g0)
 
 g1 = "TREND MTF"
 i_htf_w  = input.string("W",   "HTF 1", options=["W","D"],    group=g1)
