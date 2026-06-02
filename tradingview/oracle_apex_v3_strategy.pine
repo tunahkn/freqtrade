@@ -53,7 +53,8 @@ g4 = "FILTRELER"
 i_wt_n1        = input.int(10,   "WT Ch",  group=g4)
 i_wt_n2        = input.int(21,   "WT Avg", group=g4)
 i_rsi_len      = input.int(14,   "RSI",    group=g4)
-i_adx_min      = input.float(22.0, "ADX Min", 10, 50, 1, group=g4)
+i_adx_min      = input.float(22.0, "ADX Min LONG",  10, 50, 1, group=g4)
+i_adx_min_s    = input.float(16.0, "ADX Min SHORT", 10, 50, 1, group=g4)
 i_rvol_apex    = input.float(1.3, "RVOL APEX", 0.5, 5, 0.1, group=g4)
 i_rvol_min     = input.float(0.6, "RVOL MIN",  0.3, 5, 0.1, group=g4)
 i_cvd_len      = input.int(20, "CVD", group=g4)
@@ -86,7 +87,8 @@ er_path = math.sum(math.abs(ta.change(close)), i_er_len)
 er      = er_path > 0.0 ? er_net / er_path : 0.0
 trending = er > 0.40
 [dmi_p, dmi_m, adx_val] = ta.dmi(14, 14)
-adx_strong = adx_val > i_adx_min
+adx_strong   = adx_val > i_adx_min
+adx_strong_s = adx_val > i_adx_min_s
 vwap_val   = ta.vwap(hlc3)
 ticker_clean = str.replace(syminfo.tickerid, ".P", "")
 // Pine v6: na()/nz() bool kabul etmez; float (1.0/0.0) olarak request et, na kontrolu float'ta yap.
@@ -345,7 +347,7 @@ if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and (bar_index - l_pbar) <=
     body_l       = (close - open) / math.max(high - low, 0.00001)
     // Rolling rvol_max3 ile volume kontrolu (tek bar bekleme yerine)
     ote_reject_l = l_ote_touched and close > l_ote_hi and close > open and body_l > 0.35 and rvol_max3 >= i_ote_rvol
-    momentum_l   = close > open and body_l > 0.40 and adx_strong and st_dir_t < 0 and close > nz(l_disp_top, close) and rvol_max3 >= i_ote_rvol
+    momentum_l   = close > open and body_l > 0.40 and adx_strong   and st_dir_t < 0 and close > nz(l_disp_top, close) and rvol_max3 >= i_ote_rvol
     if ote_reject_l or momentum_l
         ls            := 3
         l_ote_touched := false
@@ -374,7 +376,7 @@ if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and (bar_index - s_pbar) <=
         s_ote_touched := true
     body_s       = (open - close) / math.max(high - low, 0.00001)
     ote_reject_s = s_ote_touched and close < s_ote_lo and close < open and body_s > 0.35 and rvol_max3 >= i_ote_rvol
-    momentum_s   = close < open and body_s > 0.40 and adx_strong and st_dir_t > 0 and close < nz(s_disp_bot, close) and rvol_max3 >= i_ote_rvol
+    momentum_s   = close < open and body_s > 0.40 and adx_strong_s and st_dir_t > 0 and close < nz(s_disp_bot, close) and rvol_max3 >= i_ote_rvol
     if ote_reject_s or momentum_s
         ss            := 3
         s_ote_touched := false
@@ -410,8 +412,8 @@ expr_risk_s = (expr_sl_s - close) / close * 100.0
 expr_good_l = expr_risk_l >= 0.10 and expr_risk_l <= 4.0
 expr_good_s = expr_risk_s >= 0.10 and expr_risk_s <= 4.0
 // Express: ADX OR Supertrend yeterli (ikisi birden degil)
-expr_trend_l = adx_strong or st_dir_t < 0
-expr_trend_s = adx_strong or st_dir_t > 0
+expr_trend_l = adx_strong   or st_dir_t < 0
+expr_trend_s = adx_strong_s or st_dir_t > 0
 expr_l_cond = ls == 0 and can_signal and news_filter and expr_body_l >= 0.55 and close > open and macro_bull_norm and expr_trend_l and rvol >= i_rvol_min and close > vwap_val and expr_good_l
 expr_s_cond = ss == 0 and can_signal and news_filter and expr_body_s >= 0.55 and close < open and macro_bear_norm and expr_trend_s and rvol >= i_rvol_min and close < vwap_val and expr_good_s
 express_long  = expr_l_cond and not expr_l_cond[1]
@@ -561,7 +563,7 @@ if i_dash and barstate.islast
     dc(2,  0, "  MTF", color.new(C_GRAY, 20), C_BG2)
     dc(2,  1, "  " + mtf_t, mtf_sc, C_BG2)
     dc(3,  0, "  ADX", color.new(C_GRAY, 20), C_BG2)
-    dc(3,  1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? " Guclu" : " Zayif"), adx_strong ? C_BULL : C_GOLD, C_BG2)
+    dc(3,  1, "  " + str.tostring(adx_val, "#.#") + (adx_strong ? " L✓" : " L✗") + (adx_strong_s ? " S✓" : " S✗"), adx_strong ? C_BULL : adx_strong_s ? C_GOLD : color.new(C_GRAY, 30), C_BG2)
     dc(4,  0, "  RVOL", color.new(C_GRAY, 20), C_BG2)
     dc(4,  1, "  " + str.tostring(rvol, "#.##") + "x", apex_vol ? C_APEX : norm_vol ? C_ORANGE : color.new(C_GRAY, 30), C_BG2)
     dc(5,  0, "  KZ", color.new(C_GRAY, 20), C_BG2)
