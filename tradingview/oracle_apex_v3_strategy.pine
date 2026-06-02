@@ -1,5 +1,5 @@
 //@version=6
-strategy("ORACLE APEX v3.0 STRATEJI", overlay=true, max_labels_count=200, max_lines_count=400, max_boxes_count=300, max_bars_back=5000, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=true, calc_on_every_tick=false, pyramiding=0)
+strategy("ORACLE APEX v3.0 STRATEJI", overlay=true, max_labels_count=200, max_lines_count=400, max_boxes_count=300, max_bars_back=5000, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=false, calc_on_every_tick=false, pyramiding=0)
 
 // RENKLER
 C_BULL   = #00e5ff
