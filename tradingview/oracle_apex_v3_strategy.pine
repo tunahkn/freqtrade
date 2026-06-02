@@ -94,10 +94,11 @@ htf_d_bull  = request.security(ticker_clean, i_htf_d,  hma_up, lookahead=barmerg
 htf_h4_bull = request.security(ticker_clean, i_htf_h4, hma_up, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 // na koruma: Pine'da `not na = true` oldugundan na deger macro_bear'i yanlis tetikler.
 // Haftalik HMA ~110 bar (2 yil) isinma ister → bu sure zarfinda tum LONG'lar yanlis bloklanir.
-// Cozum: na ise alt zaman dilimine (W→D→4H→mevcut HMA) geri don.
-_htf_w  = nz(htf_w_bull,  nz(htf_d_bull,  hma_up))
-_htf_d  = nz(htf_d_bull,  nz(htf_h4_bull, hma_up))
-_htf_h4 = nz(htf_h4_bull, hma_up)
+// Cozum: na ise alt zaman dilimine (W→D→4H→mevcut HMA) geri don. nz() bool kabul etmedigi
+// icin acik na() kontrolu kullaniyoruz.
+_htf_w  = na(htf_w_bull)  ? (na(htf_d_bull)  ? hma_up : htf_d_bull)  : htf_w_bull
+_htf_d  = na(htf_d_bull)  ? (na(htf_h4_bull) ? hma_up : htf_h4_bull) : htf_d_bull
+_htf_h4 = na(htf_h4_bull) ? hma_up : htf_h4_bull
 macro_bull_apex = _htf_w  and _htf_d  and _htf_h4
 macro_bear_apex = not _htf_w and not _htf_d and not _htf_h4
 macro_bull_norm = (_htf_w ? 1 : 0) + (_htf_d ? 1 : 0) + (_htf_h4 ? 1 : 0) >= 2
