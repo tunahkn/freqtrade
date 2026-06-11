@@ -462,38 +462,45 @@ plot(strategy.position_size != 0 ? eTp1 : na,  "TP1",  color = color.new(#26a69a
 plot(strategy.position_size != 0 ? eTp2 : na,  "TP2",  color = color.new(#26a69a, 55), style = plot.style_linebr)
 plot(strategy.position_size != 0 ? eTp3 : na,  "TP3",  color = color.new(#26a69a, 70), style = plot.style_linebr)
 
-// ===== INSTITUTIONAL DASHBOARD (4 metrics, minimalist) =====
-// Only what a desk reads at a glance: trend strength, current risk,
-// win rate, profit factor. No retail clutter.
+// ===== INSTITUTIONAL DASHBOARD v2 (signal-first, high contrast) =====
+// v9.5.2 fixes: (1) old panel was dark-on-dark -> invisible on TV dark theme,
+// (2) int/int division made Win Rate read 0%, (3) no SIGNAL row. All fixed.
 showDash = input.bool(true, "Show dashboard", group = "Dashboard")
-var color C_PANEL = #0e1117
-var color C_HEAD  = #161b24
-var color C_LINE  = #232a36
-var color C_MUTE  = #6b7280
-var color C_TXT   = #e6e9ef
-var color C_POS   = #26a69a
-var color C_NEG   = #ef5350
-var color C_WARN  = #d6a02c
+var color C_PANEL = color.new(#0b0f14, 10)
+var color C_HEAD  = color.new(#1c2330, 0)
+var color C_KEY   = color.new(#9aa4b2, 0)
+var color C_TXT   = color.new(#ffffff, 0)
+var color C_POS   = color.new(#00c896, 0)
+var color C_NEG   = color.new(#ff4d6a, 0)
+var color C_WARN  = color.new(#ffb02e, 0)
 
-// metric values
-int   wins    = strategy.wintrades
 int   closed  = strategy.closedtrades
-float winRate = closed > 0 ? wins / closed * 100.0 : na
+float winRate = closed > 0 ? strategy.wintrades * 100.0 / closed : na
 float pf      = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
 float stopLvl = strategy.position_size != 0 ? eStop : (close - stopDist)
 float stopPct = not na(stopLvl) and close > 0 ? math.abs(close - stopLvl) / close * 100.0 : na
 bool  trUp    = biasDir == Direction.long
-string regTxt = (na(adx) ? "-" : str.tostring(adx, "#")) + (regime == Regime.momentum ? "  TREND" : "  RANGE")
+string regTxt = (na(adx) ? "-" : str.tostring(adx, "#")) + (regime == Regime.momentum ? " TREND " : " RANGE ") + (longRegiOK ? "▲" : shortRegiOK ? "▼" : "■")
 color  regCol = regime == Regime.momentum ? (trUp ? C_POS : C_NEG) : C_WARN
+bool   sigL   = strategy.position_size > 0 or (qualLong and longRegiOK)
+bool   sigS   = strategy.position_size < 0 or (qualShort and shortRegiOK)
+string sigTxt = strategy.position_size > 0 ? "LONG AKTIF @ " + str.tostring(eEntry, format.mintick) :
+     strategy.position_size < 0 ? "SHORT AKTIF @ " + str.tostring(eEntry, format.mintick) :
+     qualLong and longRegiOK ? "LONG SINYAL" :
+     qualShort and shortRegiOK ? "SHORT SINYAL" :
+     "BEKLE · skor " + str.tostring(math.max(longScore, shortScore)) + "/20"
+color  sigBg  = sigL ? C_POS : sigS ? C_NEG : C_HEAD
 
-var table dash = table.new(position.top_right, 2, 5, bgcolor = C_PANEL, border_color = C_LINE, border_width = 1, frame_color = C_LINE, frame_width = 1)
+var table dash = table.new(position.top_right, 2, 6, bgcolor = C_PANEL, frame_color = color.new(#00c896, 0), frame_width = 2, border_color = color.new(#2a3342, 0), border_width = 1)
 f_row(int r, string k, string v, color vc) =>
-    table.cell(dash, 0, r, k, text_color = C_MUTE, text_size = size.small, text_halign = text.align_left,  bgcolor = C_PANEL)
-    table.cell(dash, 1, r, v, text_color = vc,     text_size = size.small, text_halign = text.align_right, bgcolor = C_PANEL)
+    table.cell(dash, 0, r, k, text_color = C_KEY, text_size = size.normal, text_halign = text.align_left,  bgcolor = C_PANEL)
+    table.cell(dash, 1, r, v, text_color = vc,    text_size = size.normal, text_halign = text.align_right, bgcolor = C_PANEL)
 if showDash and barstate.islast
-    table.cell(dash, 0, 0, "APEX v9.5", text_color = C_TXT, text_size = size.normal, text_halign = text.align_left, bgcolor = C_HEAD)
-    table.cell(dash, 1, 0, syminfo.ticker + " " + timeframe.period, text_color = C_MUTE, text_size = size.small, text_halign = text.align_right, bgcolor = C_HEAD)
-    f_row(1, "Trend Gucu",     regTxt, regCol)
-    f_row(2, "Risk (Stop)",    na(stopPct) ? "-" : str.tostring(stopLvl, format.mintick) + "  " + str.tostring(stopPct, "#.#") + "%", canTrade ? C_TXT : C_NEG)
-    f_row(3, "Win Rate",       na(winRate) ? "-" : str.tostring(winRate, "#.#") + "%  (" + str.tostring(closed) + ")", na(winRate) ? C_MUTE : winRate >= 45 ? C_POS : winRate >= 35 ? C_WARN : C_NEG)
-    f_row(4, "Profit Factor",  na(pf) ? "-" : str.tostring(pf, "#.00"), na(pf) ? C_MUTE : pf >= 1.5 ? C_POS : pf >= 1.0 ? C_WARN : C_NEG)
+    table.cell(dash, 0, 0, "⚡ APEX v9.5", text_color = C_TXT, text_size = size.normal, text_halign = text.align_left, bgcolor = C_HEAD)
+    table.cell(dash, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color = C_KEY, text_size = size.normal, text_halign = text.align_right, bgcolor = C_HEAD)
+    table.cell(dash, 0, 1, "SINYAL", text_color = C_TXT, text_size = size.normal, text_halign = text.align_left, bgcolor = sigBg)
+    table.cell(dash, 1, 1, sigTxt, text_color = C_TXT, text_size = size.normal, text_halign = text.align_right, bgcolor = sigBg)
+    f_row(2, "Trend Gucu",    regTxt, regCol)
+    f_row(3, "Risk (Stop)",   na(stopPct) ? "-" : str.tostring(stopLvl, format.mintick) + " · " + str.tostring(stopPct, "#.#") + "%", canTrade ? C_TXT : C_NEG)
+    f_row(4, "Win Rate",      na(winRate) ? "-" : str.tostring(winRate, "#.#") + "% (" + str.tostring(closed) + ")", na(winRate) ? C_KEY : winRate >= 45 ? C_POS : winRate >= 35 ? C_WARN : C_NEG)
+    f_row(5, "Profit Factor", na(pf) ? "-" : str.tostring(pf, "#.00"), na(pf) ? C_KEY : pf >= 1.5 ? C_POS : pf >= 1.0 ? C_WARN : C_NEG)

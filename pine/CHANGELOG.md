@@ -5,23 +5,62 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ---
 
-## Durum: ✅ DOĞRULANDI — LONG-ONLY (3 varlık çapraz testi geçti)
+## Durum: 🏆 BEST MÜHÜRLÜ — v9.5 golden config, OOS'ta doğrulandı (ETH 4H)
 
 | Sürüm | Tarih | Commit | Durum | Not |
 |-------|-------|--------|-------|-----|
-| v9.3  | 2026-06-11 | TBD    | ✅ **best** | Long-only (3 varlık doğrulandı) |
+| v9.5.2 | 2026-06-11 | TBD | 🏆 **BEST** | Dashboard v2 (3 bug fix) + OOS geçişi mühürlendi |
+| v9.5.1 | 2026-06-11 | `94f6671` | ⬅ eski | HTF auto-scale bug fix (günlük grafik) |
+| v9.5  | 2026-06-11 | `b97a429` | ⬅ eski | Altın ayar taraması + 4-metrik panel |
+| v9.4  | 2026-06-11 | `2f0c930` | ⬅ eski | Rejim kapısı + 2.0 ATR onarımı |
+| v9.3  | 2026-06-11 | `3dc0ac7` | ⬅ eski | Long-only toggle |
 | v9.2  | 2026-05-31 | `57f50b6` | ⬅ eski | Short rejim filtresi (200 EMA) |
 | v9.1  | 2026-05-31 | `3e4ac71` | ⬅ eski | Çıkış modeli düzeltmesi |
 | v9.0  | 2026-05-30 | `fcd9f79` | ⬅ eski | İlk v9 |
 
-> **ÖNERİLEN CONFIG (best):** 4H · `tradeShort = OFF` · sniper=11 · atr=1.0 · rr=2.0 ·
-> min-cats=2 · trailing=on · 24/7 (kill-zone kapalı).
-> Dürüst not: pozitif-edge'li, **düşük-DD trend takipçisi**. ETH al-tut'unu mutlak
-> getiride GEÇMEZ — değeri düşük drawdown + çapraz-varlık tutarlılığı.
+> **🏆 BEST CONFIG (v9.5 golden, dosya default'larında gömülü):** **4H** · long-only
+> (`tradeShort=OFF`) · sniper=10 · swing=8 · minCats=2 · **ATR stop=2.0** · **trail=4.0** ·
+> EMA200 yükselen-rejim long kapısı · rr=2.0 · 24/7 (kill-zone kapalı).
+> **Kanıt:** 2017-19 gerçek veride bulundu (3 varlık platosu) → 2019-2026 el değmemiş OOS'ta
+> ETH 4H **PF 1.917 / n=150 / DD %9 / +%136** ile geçti. **1H YASAK** (OOS PF 0.98, DD %30).
+> Dürüst kimlik: B&H'yi mutlak getiride geçmez (mega-boğa ~10x); değeri **düşük DD'li
+> tam-döngü trend katılımı**. Canlı önce 2-4 hafta paper test.
 
 ---
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
+
+### 2026-06-11 — ⭐🏆 İLK TAM OOS GEÇİŞİ + v9.5.2 dashboard düzeltmesi
+**Kullanıcı final sınavı koştu — ETH 4H, Binance, 27 Kas 2019 → 11 Haz 2026 (altın ayarların
+HİÇ görmediği dönem + farklı borsa):**
+
+| Metrik | Sonuç | Kapı | Durum |
+|--------|-------|------|-------|
+| Profit Factor | **1.917** | >1.3 | ✅ |
+| İşlem sayısı | **150** (66 kârlı, %44) | >100 | ✅ |
+| Max DD | **%9.0** | düşük | ✅ |
+| Net | **+%136.27** (+13.627 USDT) | — | ✅ |
+
+Kapı kriterleri sonuç görülmeden konmuştu; üçü de geçildi. Ayarlar 2017-19 Bitfinex'te
+donduruldu → bu test dönem + borsa boyutunda gerçek out-of-sample.
+**🏆 "BEST" MÜHRÜ: ETH 4H · long-only · v9.5 golden config.**
+
+**Aynı sınavda ETH 1H (2024-2026): PF 0.979, DD %29.8, n=228 → 1H'DE İŞLEM YASAK.**
+(Harness'ın "1H gürültülü" öngörüsüyle birebir uyumlu — ölçüm zinciri tutarlı.)
+
+**v9.5.2 — dashboard görünmüyordu, 3 gerçek hata bulunup düzeltildi:**
+1. Koyu-üstüne-koyu panel (`#0e1117` ≈ TV koyu teması) → görünmezdi. Yüksek kontrast + parlak
+   yeşil çerçeve + normal punto yapıldı.
+2. `wins / closed * 100.0` int/int bölme → Win Rate hep %0 görünürdü. `* 100.0 /` ile düzeltildi.
+3. SINYAL satırı yoktu → en üste eklendi: LONG/SHORT AKTIF @ giriş · LONG/SHORT SINYAL ·
+   BEKLE + canlı skor /20.
+
+**Dürüst dipnotlar (mühre rağmen):**
+- ALPHA hâlâ negatif: ETH aynı dönemde ~10x yaptı; +%136 onu yenmez. Değer önerisi DD'de:
+  %9'a karşı B&H ~%80 çöküş yaşadı. Risk-ayarlı (getiri/DD ≈ 15) B&H (~12.5) ile başa baş.
+- Canlı para öncesi: 2-4 hafta forward/paper test şart.
+- Bonus teyit (opsiyonel ama önerilir): BTC 4H aynı dönem — çapraz-varlık OOS.
+
 
 ### 2026-06-11 — ⭐ İLK GERÇEK OOS (kullanıcı ekranı) + HTF auto-scale BUG FIX
 **Kullanıcı v9.5'i Binance ETHUSDT.P GÜNLÜK'te 27 Kas 2019 → 11 Haz 2026'da koştu** —
