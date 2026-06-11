@@ -5,17 +5,38 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ---
 
-## Durum: 🧪 TEST AŞAMASI (henüz "best" işaretlenmedi)
+## Durum: ✅ DOĞRULANDI — LONG-ONLY (3 varlık çapraz testi geçti)
 
 | Sürüm | Tarih | Commit | Durum | Not |
 |-------|-------|--------|-------|-----|
-| v9.2  | 2026-05-31 | TBD    | 🧪 test | Short rejim filtresi (200 EMA) |
+| v9.3  | 2026-06-11 | TBD    | ✅ **best** | Long-only (3 varlık doğrulandı) |
+| v9.2  | 2026-05-31 | `57f50b6` | ⬅ eski | Short rejim filtresi (200 EMA) |
 | v9.1  | 2026-05-31 | `3e4ac71` | ⬅ eski | Çıkış modeli düzeltmesi |
 | v9.0  | 2026-05-30 | `fcd9f79` | ⬅ eski | İlk v9 |
+
+> **ÖNERİLEN CONFIG (best):** 4H · `tradeShort = OFF` · sniper=11 · atr=1.0 · rr=2.0 ·
+> min-cats=2 · trailing=on · 24/7 (kill-zone kapalı).
+> Dürüst not: pozitif-edge'li, **düşük-DD trend takipçisi**. ETH al-tut'unu mutlak
+> getiride GEÇMEZ — değeri düşük drawdown + çapraz-varlık tutarlılığı.
 
 ---
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
+
+### 2026-06-11 — APEX FINAL STRATEJI (kullanıcının ORACLE motoru) doğrulama-hazır hâle getirildi
+Kullanıcı, başka bir AI'ın geliştirdiği "APEX FINAL" motorunu getirdi (BTC 1H'de PF ~2.4 / +%72 raporlandı).
+**Dürüst puan (gelen hâl): 7/10.** Gerçek `strategy` (backtest edilebilir ✅), dürüst dashboard ✅,
+`lookahead_off` ✅, mantıklı ~%1 risk sizing ✅. AMA: tek varlık/tek period (LONG-canavar tuzağı),
+Buy&Hold karşılaştırması yok, OOS yok, risk guard yok, asimetrik ADX (22/16) overfit kokusu.
+
+**Eklenen (→ `pine/APEX_FINAL_STRATEJI.pine`):**
+- (A) Dashboard'a **Buy&Hold + ALPHA + Capture%** satırı — +%72 gerçek alpha mı yoksa piyasa mı yükseldi, net görünür
+- (B) **Tarih aralığı + OOS bölme gölgesi** — walk-forward yapılabilir
+- (C) **Risk guards** (günlük zarar + ardışık zarar freni)
+- (D) Yön default **Long** (3-varlık testimizle uyumlu)
+
+**10/10 KAPILARI (kod değil, kanıt):** BTC+ETH+SOL aynı ayar PF>1 · OOS'ta PF>1 · ALPHA>0 · ≥100 işlem.
+
 
 ### 2026-05-31 — ETH 4H, TAM DÖNGÜ (2019-11 → 2026-05, 6.5 yıl) ⭐ KİLOMETRE TAŞI
 Ayarlar: 24/7 (kill-zone kapalı), sniper=11, 4H, long+short açık, trailing exit.
