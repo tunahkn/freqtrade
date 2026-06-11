@@ -23,6 +23,25 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — ⭐ GERÇEK VERİ, GERÇEK OOS: 2017-2019 TAM DÖNGÜ (kendi indirdiğimiz Bitfinex 1m → 4H)
+Kaynak: Bitfinex gerçek 1-dakika mumları (GitHub arşivi), 3 varlık × 3 yıl, 1H+4H'ye resample.
+Dönem 2017 boğa + 2018 ayı + 2019 toparlanma = **donmuş ayarlar için gerçek out-of-sample**.
+Config: v9 long-only "best" (sniper=11, atr=1.0, rr=2.0, min-cats=2, trail on, fee 0.05+slip 0.02).
+
+| Varlık (4H) | İşlem | PF | Getiri | B&H | ALPHA | Kapı |
+|------------|-------|-----|--------|------|-------|------|
+| BTC | 58 | 0.69 | −13.0% | +647% | −660% | 0/5 🔴 |
+| ETH | 64 | 0.63 | −14.8% | +1410% | −1425% | 0/5 🔴 |
+| LTC | 84 | 0.83 | −10.7% | +833% | −844% | 0/5 🔴 |
+| BTC (short açık) | 120 | 0.84 | −13.0% | | | 1/5 🔴 |
+| ETH (short açık) | 113 | 0.83 | −11.6% | | | 1/5 🔴 |
+
+**HÜKÜM:** 2019-2026'da görülen PF 1.3-1.8 "edge", 2017-2019'a TAŞINMIYOR (0/3 varlık).
+Monte Carlo kârlılık olasılığı %0. Bu, ya rejim bağımlılığı ya da 2019-2026'ya overfit demek.
+Kurumsal masa kararı: **bu hâliyle canlıya ÇIKMAZ** — araştırmaya geri döner (rejim analizi şart).
+Dürüst not: Harness daha önce TradingView'le doğrulanmıştı (ETH 1H: 0.75 ≈ 0.745) → ölçüm güvenilir.
+
+
 ### 2026-06-11 — KURUMSAL DOĞRULAYICI eklendi (`scripts/apex_validate.py`)
 Tüm proje karnesi çıkarıldı. Gerçek eksik: daha çok indikatör değil — **risk-ayarlı + sağlamlık ölçümü**.
 Eklenen araç, bir trading masasının kullandığı 5 kapıyı uygular ve PASS/FAIL karnesi basar:
