@@ -23,6 +23,33 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — ⭐⭐⭐ v9.5: ALTIN AYAR TARAMASI + minimalist kurumsal panel
+**Parametre taraması (`scripts/apex_sweep.py`)** — gerçek 2017-2019 Bitfinex, fee+slip dahil,
+216 kombinasyon × 3 varlık. Overfit'ten kaçınmak için tek tepe değil **3 varlıkta birden
+tutan plato** seçildi (141/216 kombinasyon "3 varlık da PF>1.0" kapısını geçti).
+
+**Altın ayarlar (default'a gömüldü):** sniper=10 · swing=8 · minCats=2 · ATR stop=**2.0** ·
+trail=**4.0** · EMA200 yükselen-rejim long kapısı · rr=2.0 · long-only.
+
+**İçsel sonuç (4H, maliyet dahil):**
+| Varlık | PF | Net | Win% | Max DD | Sharpe | MC |
+|--------|-----|-----|------|--------|--------|-----|
+| BTC | 2.36 | +72.2% | 45.7% | −8.9% | 2.02 | %100 |
+| ETH | 3.14 | +93.1% | 48.3% | −3.1% | 2.82 | %100 |
+| LTC | 1.41 | +21.4% | 33.8% | −8.8% | 0.97 | %100 |
+
+Ortalama PF 2.30, ortalama net +%62, ortalama DD −%7 — 3 varlık da PF>1.4. Plato geniş
+(tablo başı hep aynı aile) → bıçak sırtı değil, sağlam.
+
+**Panel (görsel rötuş):** 16 satırlık retail kalabalık → **4 metrik** minimalist kurumsal panel:
+Trend Gücü (ADX+rejim) · Risk (canlı Stop seviyesi+%) · Win Rate · Profit Factor. Koyu tema,
+tek vurgu rengi, çakışan çizgi yok.
+
+⚠️ **DÜRÜST UYARI:** PF 2.36 İÇSEL (in-sample) sayıdır — bu veriden bulundu. ALPHA hâlâ negatif
+(mega-boğada B&H yenilmez). Gerçek hüküm: **2019-2026 el değmemiş OOS**. Kullanıcı v9.5
+default'larıyla TradingView'de orada koşacak; PF>1.3 + DD düşük gelirse 🏆 mühür.
+
+
 ### 2026-06-11 — ⭐⭐ ŞAMPİYON ONARIMI (v9.4): teşhis + kanıtlı düzeltme
 Dünkü 🔴 hükmün (2017-19'da 0/6 pozitif) **kök nedeni bulundu**, tahminle değil deneyle:
 
