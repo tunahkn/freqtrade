@@ -23,6 +23,19 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — KURUMSAL DOĞRULAYICI eklendi (`scripts/apex_validate.py`)
+Tüm proje karnesi çıkarıldı. Gerçek eksik: daha çok indikatör değil — **risk-ayarlı + sağlamlık ölçümü**.
+Eklenen araç, bir trading masasının kullandığı 5 kapıyı uygular ve PASS/FAIL karnesi basar:
+- **Sharpe / Sortino** (risk-ayarlı getiri, ham getiri değil)
+- **Monte Carlo** (2000 kez işlem sırası karıştır → kârlı kalma olasılığı + p95 DD) — şans serisi mi gerçek edge mi
+- **ALPHA vs Buy&Hold** (makine değer katıyor mu)
+- **≥100 işlem** anlamlılık kapısı
+- **Çapraz-varlık** portföy hükmü (genelleşiyor mu / varlığa özgü mü)
+
+Sentetik veride (11-38 işlem) doğru şekilde 🔴 NOT TRADEABLE veriyor — kapılar dürüst.
+Gerçek hüküm için: BTC/ETH/SOL 4H gerçek export'larında çalıştır.
+
+
 ### 2026-06-11 — APEX FINAL STRATEJI (kullanıcının ORACLE motoru) doğrulama-hazır hâle getirildi
 Kullanıcı, başka bir AI'ın geliştirdiği "APEX FINAL" motorunu getirdi (BTC 1H'de PF ~2.4 / +%72 raporlandı).
 **Dürüst puan (gelen hâl): 7/10.** Gerçek `strategy` (backtest edilebilir ✅), dürüst dashboard ✅,
