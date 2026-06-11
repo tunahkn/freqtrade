@@ -97,15 +97,16 @@ put_wall   = input.float(0.0, "Put Wall (0=off)", minval=0.0, group=g12)
 g13 = "13 · Risk Engine"
 account       = input.float(10000.0, "Account Size ($)", minval=1.0, group=g13)
 risk_pct      = input.float(0.5, "Risk per Trade (%)", minval=0.01, step=0.05, group=g13)
-atr_stop_mult = input.float(1.5, "ATR Stop Multiplier", minval=0.1, step=0.1, group=g13)
+atr_stop_mult = input.float(2.0, "ATR Stop Multiplier", minval=0.1, step=0.1, group=g13)
 kelly_frac    = input.float(0.25, "Kelly Fraction", minval=0.0, maxval=1.0, step=0.05, group=g13)
-leverage      = input.int(5, "Leverage", minval=1, maxval=125, group=g13)
-win_rate      = input.float(0.55, "Assumed Win Rate", minval=0.0, maxval=1.0, step=0.01, group=g13)
-payoff        = input.float(1.5, "Payoff Ratio (R)", minval=0.1, step=0.1, group=g13)
+leverage      = input.int(3, "Leverage", minval=1, maxval=125, group=g13)
+win_rate      = input.float(0.44, "Assumed Win Rate", minval=0.0, maxval=1.0, step=0.01, group=g13)
+payoff        = input.float(2.5, "Payoff Ratio (R)", minval=0.1, step=0.1, group=g13)
 
 g14 = "14 · Scoring & Display"
 sniper_th      = input.int(14, "Sniper Threshold (of 20)", minval=1, maxval=20, group=g14)
 watch_th       = input.int(10, "Watch Threshold (of 20)", minval=1, maxval=20, group=g14)
+conf_window    = input.int(5, "Confluence Window (bars)", minval=1, maxval=30, group=g14, tooltip="Event components (sweep, structure break, FVG tap, POC reclaim) stay valid for this many bars so sequential confluence can align into one score.")
 show_dashboard = input.bool(true, "Show Dashboard", group=g14)
 
 g15 = "15 · Visual Toggles"
@@ -377,6 +378,30 @@ stopDistPct = (stopDist / math.max(close, syminfo.mintick)) * 100.0
 safeLev     = stopDistPct < liqDistPct * 0.5
 
 // ═══════════ SCORING (20 pts, regime-weighted) ═══════════
+// Event components are single-bar triggers (sweep, break, tap). They stay valid
+// for conf_window bars so a sweep followed by a CHoCH a few bars later can
+// still stack into one confluence score.
+bsSslSweep  = ta.barssince(sslSwept)
+bsBslSweep  = ta.barssince(bslSwept)
+bsStructL   = ta.barssince(chochUp or bosUp)
+bsStructS   = ta.barssince(chochDown or bosDown)
+bsFvgL      = ta.barssince(bullFvgTap)
+bsFvgS      = ta.barssince(bearFvgTap)
+bsPocUp     = ta.barssince(pocReclaimUp)
+bsPocDn     = ta.barssince(pocReclaimDn)
+recSslSweep = not na(bsSslSweep) and bsSslSweep <= conf_window
+recBslSweep = not na(bsBslSweep) and bsBslSweep <= conf_window
+recStructL  = not na(bsStructL) and bsStructL <= conf_window
+recStructS  = not na(bsStructS) and bsStructS <= conf_window
+recFvgL     = not na(bsFvgL) and bsFvgL <= conf_window
+recFvgS     = not na(bsFvgS) and bsFvgS <= conf_window
+recPocUp    = not na(bsPocUp) and bsPocUp <= conf_window
+recPocDn    = not na(bsPocDn) and bsPocDn <= conf_window
+
+// Kill zones only resolve on intraday charts up to 1h; on higher TFs the
+// component is neutralized so it cannot systematically block signals.
+kzApplicable = timeframe.in_seconds(timeframe.period) <= 3600
+
 bosPtsVal = regime == Regime.momentum ? 4 : regime == Regime.meanrev ? 2 : 3
 pdPtsVal  = regime == Regime.meanrev ? 3 : regime == Regime.momentum ? 1 : 2
 
@@ -389,20 +414,20 @@ ptsBiasL   = biasDir == Direction.long ? 3 : 0
 ptsBiasS   = biasDir == Direction.short ? 3 : 0
 ptsVwapL   = vwapLongOk ? 2 : 0
 ptsVwapS   = vwapShortOk ? 2 : 0
-ptsSweepL  = sslSwept ? 3 : 0
-ptsSweepS  = bslSwept ? 3 : 0
-ptsStructL = (chochUp or bosUp) ? bosPtsVal : 0
-ptsStructS = (chochDown or bosDown) ? bosPtsVal : 0
-ptsFvgL    = bullFvgTap ? 2 : 0
-ptsFvgS    = bearFvgTap ? 2 : 0
+ptsSweepL  = recSslSweep ? 3 : 0
+ptsSweepS  = recBslSweep ? 3 : 0
+ptsStructL = recStructL ? bosPtsVal : 0
+ptsStructS = recStructS ? bosPtsVal : 0
+ptsFvgL    = recFvgL ? 2 : 0
+ptsFvgS    = recFvgS ? 2 : 0
 ptsPdL     = (inDiscount or oteLong) ? pdPtsVal : 0
 ptsPdS     = (inPremium or oteShort) ? pdPtsVal : 0
 ptsCvdL    = bullCvdDiv ? 1 : 0
 ptsCvdS    = bearCvdDiv ? 1 : 0
-ptsPocL    = pocReclaimUp ? 1 : 0
-ptsPocS    = pocReclaimDn ? 1 : 0
-ptsKzL     = inKillZone ? 2 : 0
-ptsKzS     = inKillZone ? 2 : 0
+ptsPocL    = recPocUp ? 1 : 0
+ptsPocS    = recPocDn ? 1 : 0
+ptsKzL     = (inKillZone or not kzApplicable) ? 2 : 0
+ptsKzS     = (inKillZone or not kzApplicable) ? 2 : 0
 ptsSentL   = sentLongOk ? 1 : 0
 ptsSentS   = sentShortOk ? 1 : 0
 
@@ -472,13 +497,13 @@ if show_dashboard and barstate.islast
     table.cell(dash, 3, 0, "S", text_color=color.red, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
     f_row(1, "HTF Bias", biasDir == Direction.long ? "LONG" : biasDir == Direction.short ? "SHORT" : "—", ptsBiasL, ptsBiasS)
     f_row(2, "Anch. VWAP", vwapLongOk ? "ABOVE" : vwapShortOk ? "BELOW" : "—", ptsVwapL, ptsVwapS)
-    f_row(3, "Liq. Sweep", sslSwept ? "SSL" : bslSwept ? "BSL" : "—", ptsSweepL, ptsSweepS)
-    f_row(4, "Structure", chochUp or chochDown ? "CHoCH" : bosUp or bosDown ? "BOS" : "—", ptsStructL, ptsStructS)
-    f_row(5, "FVG @ CE", bullFvgTap ? "BULL TAP" : bearFvgTap ? "BEAR TAP" : "—", ptsFvgL, ptsFvgS)
+    f_row(3, "Liq. Sweep", recSslSweep ? "SSL ✓" : recBslSweep ? "BSL ✓" : "—", ptsSweepL, ptsSweepS)
+    f_row(4, "Structure", recStructL ? "BULL BRK" : recStructS ? "BEAR BRK" : "—", ptsStructL, ptsStructS)
+    f_row(5, "FVG @ CE", recFvgL ? "BULL TAP" : recFvgS ? "BEAR TAP" : "—", ptsFvgL, ptsFvgS)
     f_row(6, "Prem/Disc", inDiscount ? "DISCOUNT" : inPremium ? "PREMIUM" : "EQ", ptsPdL, ptsPdS)
     f_row(7, "CVD Div", bullCvdDiv ? "BULL" : bearCvdDiv ? "BEAR" : "—", ptsCvdL, ptsCvdS)
-    f_row(8, "POC", pocReclaimUp ? "RECLAIM ↑" : pocReclaimDn ? "LOST ↓" : "—", ptsPocL, ptsPocS)
-    f_row(9, "Kill Zone", inSilver ? "SILVER" : inNyAm ? "NY AM" : inLondon ? "LONDON" : inAsian ? "ASIA" : "—", ptsKzL, ptsKzS)
+    f_row(8, "POC", recPocUp ? "RECLAIM ↑" : recPocDn ? "LOST ↓" : "—", ptsPocL, ptsPocS)
+    f_row(9, "Kill Zone", not kzApplicable ? "N/A (TF)" : inSilver ? "SILVER" : inNyAm ? "NY AM" : inLondon ? "LONDON" : inAsian ? "ASIA" : "—", ptsKzL, ptsKzS)
     f_row(10, "Sentiment", sentLongOk ? "CROWD SHORT" : sentShortOk ? "CROWD LONG" : "NEUTRAL", ptsSentL, ptsSentS)
     sigTxt = sniperLong ? "SNIPER LONG" : sniperShort ? "SNIPER SHORT" : watchLong ? "WATCH LONG" : watchShort ? "WATCH SHORT" : "—"
     sigClr = sniperLong or watchLong ? color.lime : sniperShort or watchShort ? color.red : color.gray
