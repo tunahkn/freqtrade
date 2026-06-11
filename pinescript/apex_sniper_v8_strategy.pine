@@ -1,0 +1,500 @@
+//@version=6
+strategy(title="APEX SNIPER v8 — Institutional Confluence Strategy", shorttitle="APEX v8 STRAT", overlay=true, initial_capital=10000, currency=currency.NONE, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2, process_orders_on_close=true, calc_on_every_tick=false, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=500)
+
+// ═══════════ TYPES ═══════════
+enum Direction
+    long
+    short
+    neutral
+
+enum Regime
+    momentum
+    meanrev
+    unknown
+
+enum CvdMethod
+    bodyProp = "Body proportional"
+    upDown   = "Up/Down volume"
+
+type FVG
+    float top
+    float bot
+    int   barIdx
+    bool  bull
+    box   bx
+    line  ce
+
+type OB
+    float top
+    float bot
+    bool  bull
+    box   bx
+
+method mid(FVG f) =>
+    (f.top + f.bot) / 2.0
+
+// ═══════════ INPUTS ═══════════
+g01 = "01 · HTF Bias"
+htf_tf      = input.timeframe("240", "HTF Timeframe", group=g01)
+htf_ma_len  = input.int(50, "HTF MA Length", minval=1, group=g01)
+htf_ma_type = input.string("EMA", "HTF MA Type", options=["EMA", "SMA"], group=g01)
+
+g02 = "02 · Structure"
+swing_len         = input.int(5, "Swing Length", minval=2, group=g02)
+use_close_confirm = input.bool(true, "Close-Confirmed Breaks (BOS/CHoCH)", group=g02)
+
+g03 = "03 · Fair Value Gaps"
+fvg_atr_mult = input.float(0.5, "FVG Min Size (ATR mult)", minval=0.0, step=0.1, group=g03)
+fvg_max      = input.int(20, "Max Stored FVGs", minval=1, maxval=20, group=g03)
+show_ce      = input.bool(true, "Show CE Midline", group=g03)
+
+g04 = "04 · Order Blocks"
+ob_atr_mult = input.float(0.8, "OB Impulse Size (ATR mult)", minval=0.0, step=0.1, group=g04)
+ob_max      = input.int(20, "Max Stored OBs", minval=1, maxval=20, group=g04)
+
+g05 = "05 · Liquidity"
+liq_lb             = input.int(20, "Liquidity Lookback", minval=5, group=g05)
+require_wick_reject = input.bool(true, "Require Wick Rejection on Sweep", group=g05)
+detect_inducement  = input.bool(true, "Detect Inducement", group=g05)
+
+g06 = "06 · Kill Zones"
+tz_in       = input.string("America/New_York", "Timezone (DST auto)", group=g06)
+use_tz      = input.bool(true, "Use Custom Timezone", group=g06)
+asian_sess  = input.session("2000-0000", "Asian", group=g06)
+london_sess = input.session("0200-0500", "London", group=g06)
+nyam_sess   = input.session("0830-1100", "NY AM", group=g06)
+sb_sess     = input.session("1000-1100", "Silver Bullet", group=g06)
+
+g07 = "07 · Volume Profile"
+vp_lb   = input.int(200, "Profile Lookback", minval=20, maxval=480, group=g07)
+vp_bins = input.int(24, "Profile Bins", minval=4, maxval=50, group=g07)
+va_pct  = input.float(0.70, "Value Area %", minval=0.5, maxval=0.95, step=0.05, group=g07)
+
+g08 = "08 · CVD"
+cvd_method      = input.enum(CvdMethod.bodyProp, "CVD Method", group=g08)
+cvd_reset_daily = input.bool(true, "Reset CVD Daily", group=g08)
+
+g09 = "09 · Regime"
+adx_len      = input.int(14, "ADX Length", minval=1, group=g09)
+adx_trend_th = input.float(20.0, "ADX Trend Threshold", minval=1.0, group=g09)
+
+g10 = "10 · RVOL"
+rvol_len = input.int(20, "RVOL Length", minval=1, group=g10)
+rvol_min = input.float(1.3, "RVOL Minimum (displacement)", minval=0.1, step=0.1, group=g10)
+
+g11 = "11 · Crypto Sentiment (manual daily)"
+funding_rate      = input.float(0.0, "Funding Rate (%)", step=0.01, group=g11)
+oi_zscore         = input.float(0.0, "Open Interest Z-Score", step=0.1, group=g11)
+ls_ratio          = input.float(1.0, "Long/Short Ratio", minval=0.0, step=0.05, group=g11)
+liq_cluster_above = input.float(0.0, "Liq. Cluster Above (price, 0=off)", minval=0.0, group=g11)
+liq_cluster_below = input.float(0.0, "Liq. Cluster Below (price, 0=off)", minval=0.0, group=g11)
+
+g12 = "12 · GEX (manual daily)"
+gamma_flip = input.float(0.0, "Gamma Flip (0=unknown)", minval=0.0, group=g12)
+call_wall  = input.float(0.0, "Call Wall (0=off)", minval=0.0, group=g12)
+put_wall   = input.float(0.0, "Put Wall (0=off)", minval=0.0, group=g12)
+
+g13 = "13 · Risk Engine"
+risk_pct      = input.float(0.5, "Risk per Trade (% of equity)", minval=0.01, step=0.05, group=g13)
+atr_stop_mult = input.float(1.5, "ATR Stop Multiplier", minval=0.1, step=0.1, group=g13)
+kelly_frac    = input.float(0.25, "Kelly Fraction", minval=0.0, maxval=1.0, step=0.05, group=g13)
+leverage      = input.int(5, "Leverage (notional cap)", minval=1, maxval=125, group=g13)
+win_rate      = input.float(0.55, "Assumed Win Rate", minval=0.0, maxval=1.0, step=0.01, group=g13)
+payoff        = input.float(1.5, "Payoff Ratio (R = TP/SL)", minval=0.1, step=0.1, group=g13)
+
+g14 = "14 · Scoring & Display"
+sniper_th      = input.int(14, "Sniper Threshold (of 20)", minval=1, maxval=20, group=g14)
+watch_th       = input.int(10, "Watch Threshold (of 20)", minval=1, maxval=20, group=g14)
+show_dashboard = input.bool(true, "Show Dashboard", group=g14)
+
+g15 = "15 · Execution"
+allow_long       = input.bool(true, "Allow Long Entries", group=g15)
+allow_short      = input.bool(true, "Allow Short Entries", group=g15)
+enforce_safe_lev = input.bool(true, "Block Entries When Leverage Unsafe", group=g15)
+exit_on_opposite = input.bool(true, "Reverse on Opposite Sniper Signal", group=g15)
+
+// ═══════════ HELPERS ═══════════
+maFn(float src, simple int len, simple string t) =>
+    e = ta.ema(src, len)
+    s = ta.sma(src, len)
+    t == "EMA" ? e : s
+
+// ═══════════ HTF BIAS ═══════════
+htfValid    = timeframe.in_seconds(htf_tf) >= timeframe.in_seconds(timeframe.period)
+htfCloseRaw = request.security(syminfo.tickerid, htf_tf, close, lookahead=barmerge.lookahead_off)
+htfMaRaw    = request.security(syminfo.tickerid, htf_tf, maFn(close, htf_ma_len, htf_ma_type), lookahead=barmerge.lookahead_off)
+chartMa     = maFn(close, htf_ma_len, htf_ma_type)
+htfClose    = htfValid ? htfCloseRaw : close
+htfMa       = htfValid ? htfMaRaw : chartMa
+biasLong    = not na(htfClose) and not na(htfMa) and htfClose > htfMa
+biasShort   = not na(htfClose) and not na(htfMa) and htfClose < htfMa
+biasDir     = biasLong ? Direction.long : biasShort ? Direction.short : Direction.neutral
+
+// ═══════════ PREVIOUS PERIOD LEVELS (lookahead_on + [1] = non-repainting) ═══════════
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+
+// ═══════════ DISPLACEMENT / RVOL (no-volume safe) ═══════════
+volSma = ta.sma(volume, rvol_len)
+hasVol = not na(volume) and not na(volSma) and volSma > 0
+rvol   = hasVol ? volume / volSma : 1.0
+disp   = (not hasVol) or (rvol >= rvol_min)
+
+// ═══════════ SWINGS + BOS / CHoCH / GRABS ═══════════
+ph = ta.pivothigh(high, swing_len, swing_len)
+pl = ta.pivotlow(low, swing_len, swing_len)
+var float lastSH = na
+var float lastSL = na
+if not na(ph)
+    lastSH := ph
+if not na(pl)
+    lastSL := pl
+
+brokeHighClose = bar_index > 0 and not na(lastSH) and close > lastSH and close[1] <= lastSH
+brokeLowClose  = bar_index > 0 and not na(lastSL) and close < lastSL and close[1] >= lastSL
+brokeHighWick  = bar_index > 0 and not na(lastSH) and high > lastSH and high[1] <= lastSH
+brokeLowWick   = bar_index > 0 and not na(lastSL) and low < lastSL and low[1] >= lastSL
+brokeHigh      = use_close_confirm ? brokeHighClose : brokeHighWick
+brokeLow       = use_close_confirm ? brokeLowClose : brokeLowWick
+
+bosUp     = brokeHigh and biasDir == Direction.long
+bosDown   = brokeLow and biasDir == Direction.short
+chochUp   = brokeHigh and biasDir == Direction.short
+chochDown = brokeLow and biasDir == Direction.long
+grabHigh  = not na(lastSH) and high > lastSH and close <= lastSH
+grabLow   = not na(lastSL) and low < lastSL and close >= lastSL
+
+// ═══════════ FVG ENGINE ═══════════
+atr = ta.atr(14)
+var array<FVG> fvgs = array.new<FVG>()
+newBull = bar_index > 1 and not na(atr) and low > high[2] and (low - high[2]) >= atr * fvg_atr_mult and disp
+newBear = bar_index > 1 and not na(atr) and high < low[2] and (low[2] - high) >= atr * fvg_atr_mult and disp
+
+if newBull
+    bullMid = (low + high[2]) / 2.0
+    bxB = box.new(left=bar_index - 2, top=low, right=bar_index, bottom=high[2], bgcolor=color.new(color.teal, 82), border_color=color.new(color.teal, 55))
+    ceB = show_ce ? line.new(x1=bar_index - 2, y1=bullMid, x2=bar_index, y2=bullMid, color=color.new(color.teal, 30), style=line.style_dashed, width=1) : na
+    array.push(fvgs, FVG.new(top=low, bot=high[2], barIdx=bar_index, bull=true, bx=bxB, ce=ceB))
+if newBear
+    bearMid = (low[2] + high) / 2.0
+    bxS = box.new(left=bar_index - 2, top=low[2], right=bar_index, bottom=high, bgcolor=color.new(color.maroon, 82), border_color=color.new(color.maroon, 55))
+    ceS = show_ce ? line.new(x1=bar_index - 2, y1=bearMid, x2=bar_index, y2=bearMid, color=color.new(color.maroon, 30), style=line.style_dashed, width=1) : na
+    array.push(fvgs, FVG.new(top=low[2], bot=high, barIdx=bar_index, bull=false, bx=bxS, ce=ceS))
+
+bullFvgTap = false
+bearFvgTap = false
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        f = array.get(fvgs, i)
+        fMid = f.mid()
+        if f.bull and low <= fMid and close >= fMid
+            bullFvgTap := true
+        if (not f.bull) and high >= fMid and close <= fMid
+            bearFvgTap := true
+        mitigated = f.bull ? low <= f.bot : high >= f.top
+        if mitigated
+            if not na(f.bx)
+                box.delete(f.bx)
+            if not na(f.ce)
+                line.delete(f.ce)
+            array.remove(fvgs, i)
+        else
+            if not na(f.bx)
+                box.set_right(f.bx, bar_index)
+            if not na(f.ce)
+                line.set_x2(f.ce, bar_index)
+while array.size(fvgs) > fvg_max
+    oldF = array.shift(fvgs)
+    if not na(oldF.bx)
+        box.delete(oldF.bx)
+    if not na(oldF.ce)
+        line.delete(oldF.ce)
+
+// ═══════════ ORDER BLOCKS ═══════════
+var array<OB> obs = array.new<OB>()
+bullOB = bar_index > 0 and not na(atr) and close[1] < open[1] and close > high[1] and (high - low) > atr * ob_atr_mult and disp
+bearOB = bar_index > 0 and not na(atr) and close[1] > open[1] and close < low[1] and (high - low) > atr * ob_atr_mult and disp
+
+if bullOB
+    obxB = box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.green, 80), border_color=color.new(color.green, 50))
+    array.push(obs, OB.new(top=high[1], bot=low[1], bull=true, bx=obxB))
+if bearOB
+    obxS = box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.red, 80), border_color=color.new(color.red, 50))
+    array.push(obs, OB.new(top=high[1], bot=low[1], bull=false, bx=obxS))
+
+if array.size(obs) > 0
+    for i = array.size(obs) - 1 to 0
+        o = array.get(obs, i)
+        invalidated = o.bull ? close < o.bot : close > o.top
+        if invalidated
+            if not na(o.bx)
+                box.delete(o.bx)
+            array.remove(obs, i)
+        else
+            if not na(o.bx)
+                box.set_right(o.bx, bar_index)
+while array.size(obs) > ob_max
+    oldO = array.shift(obs)
+    if not na(oldO.bx)
+        box.delete(oldO.bx)
+
+// ═══════════ LIQUIDITY SWEEPS + INDUCEMENT ═══════════
+bslLvl   = ta.highest(high, liq_lb)[1]
+sslLvl   = ta.lowest(low, liq_lb)[1]
+bslSwept = not na(bslLvl) and high > bslLvl and (require_wick_reject ? close < bslLvl : true)
+sslSwept = not na(sslLvl) and low < sslLvl and (require_wick_reject ? close > sslLvl : true)
+inducementHi = detect_inducement and not na(lastSH) and not na(bslLvl) and lastSH < bslLvl and high > lastSH and high < bslLvl and close < lastSH
+inducementLo = detect_inducement and not na(lastSL) and not na(sslLvl) and lastSL > sslLvl and low < lastSL and low > sslLvl and close > lastSL
+
+// ═══════════ PREMIUM / DISCOUNT + OTE ═══════════
+rH = ta.highest(high, 50)
+rL = ta.lowest(low, 50)
+rM = (rH + rL) / 2.0
+inDiscount = not na(rM) and close < rM
+inPremium  = not na(rM) and close > rM
+oteLong  = not na(rL) and not na(rH) and close >= rL + (rH - rL) * 0.62 and close <= rL + (rH - rL) * 0.79
+oteShort = not na(rH) and not na(rL) and close <= rH - (rH - rL) * 0.62 and close >= rH - (rH - rL) * 0.79
+
+// ═══════════ KILL ZONES ═══════════
+tzUsed     = use_tz ? tz_in : syminfo.timezone
+inAsian    = not na(time(timeframe.period, asian_sess, tzUsed))
+inLondon   = not na(time(timeframe.period, london_sess, tzUsed))
+inNyAm     = not na(time(timeframe.period, nyam_sess, tzUsed))
+inSilver   = not na(time(timeframe.period, sb_sess, tzUsed))
+inKillZone = inLondon or inNyAm or inSilver
+
+// ═══════════ CVD + PIVOT DIVERGENCE ═══════════
+dayChange = timeframe.change("D")
+bodyR = math.abs(close - open) / math.max(high - low, syminfo.mintick)
+buyV  = volume * (close >= open ? bodyR : 1.0 - bodyR)
+sellV = volume * (close < open ? bodyR : 1.0 - bodyR)
+deltaBody = nz(buyV) - nz(sellV)
+deltaUd   = bar_index > 0 and not na(volume) ? (close > close[1] ? volume : close < close[1] ? -volume : 0.0) : 0.0
+delta     = cvd_method == CvdMethod.bodyProp ? deltaBody : deltaUd
+var float cvd = 0.0
+cvd := (cvd_reset_daily and dayChange) ? delta : nz(cvd[1]) + delta
+
+var float pPL1 = na
+var float pPL2 = na
+var float cPL1 = na
+var float cPL2 = na
+if not na(pl)
+    pPL2 := pPL1
+    pPL1 := pl
+    cPL2 := cPL1
+    cPL1 := cvd[swing_len]
+var float pPH1 = na
+var float pPH2 = na
+var float cPH1 = na
+var float cPH2 = na
+if not na(ph)
+    pPH2 := pPH1
+    pPH1 := ph
+    cPH2 := cPH1
+    cPH1 := cvd[swing_len]
+bullCvdDiv = not na(pPL2) and not na(cPL2) and not na(pPL1) and not na(cPL1) and pPL1 < pPL2 and cPL1 > cPL2
+bearCvdDiv = not na(pPH2) and not na(cPH2) and not na(pPH1) and not na(cPH1) and pPH1 > pPH2 and cPH1 < cPH2
+
+// ═══════════ VOLUME PROFILE (POC / VAH / VAL) ═══════════
+vpHi = ta.highest(high, vp_lb)
+vpLo = ta.lowest(low, vp_lb)
+var float poc = na
+var float vah = na
+var float valLvl = na
+if bar_index >= vp_lb and not na(vpHi) and not na(vpLo) and vpHi > vpLo
+    binW = (vpHi - vpLo) / vp_bins
+    vols = array.new<float>(vp_bins, 0.0)
+    for k = 0 to vp_lb - 1
+        rawIdx = int(math.floor((hlc3[k] - vpLo) / math.max(binW, syminfo.mintick)))
+        idx = math.min(math.max(rawIdx, 0), vp_bins - 1)
+        array.set(vols, idx, array.get(vols, idx) + nz(volume[k]))
+    total = array.sum(vols)
+    if total > 0
+        pocIdx = 0
+        maxV = array.get(vols, 0)
+        for b = 1 to vp_bins - 1
+            if array.get(vols, b) > maxV
+                maxV := array.get(vols, b)
+                pocIdx := b
+        poc := vpLo + (pocIdx + 0.5) * binW
+        target = total * va_pct
+        cum = array.get(vols, pocIdx)
+        upIdx = pocIdx
+        dnIdx = pocIdx
+        while cum < target and (upIdx < vp_bins - 1 or dnIdx > 0)
+            upV = upIdx < vp_bins - 1 ? array.get(vols, upIdx + 1) : -1.0
+            dnV = dnIdx > 0 ? array.get(vols, dnIdx - 1) : -1.0
+            if upV >= dnV
+                upIdx += 1
+                cum += math.max(upV, 0.0)
+            else
+                dnIdx -= 1
+                cum += math.max(dnV, 0.0)
+        vah := vpLo + (upIdx + 1) * binW
+        valLvl := vpLo + dnIdx * binW
+
+pocReclaimUp = bar_index > 0 and not na(poc) and close > poc and close[1] <= poc
+pocReclaimDn = bar_index > 0 and not na(poc) and close < poc and close[1] >= poc
+
+var line pocLn = na
+var line vahLn = na
+var line valLn = na
+if barstate.islast and not na(poc)
+    line.delete(pocLn)
+    line.delete(vahLn)
+    line.delete(valLn)
+    pocLn := line.new(x1=bar_index - vp_lb, y1=poc, x2=bar_index, y2=poc, color=color.new(color.orange, 0), width=2)
+    vahLn := line.new(x1=bar_index - vp_lb, y1=vah, x2=bar_index, y2=vah, color=color.new(color.orange, 45), style=line.style_dashed, width=1)
+    valLn := line.new(x1=bar_index - vp_lb, y1=valLvl, x2=bar_index, y2=valLvl, color=color.new(color.orange, 45), style=line.style_dashed, width=1)
+
+// ═══════════ ANCHORED VWAP ═══════════
+aVwap = ta.vwap(hlc3, dayChange)
+
+// ═══════════ ADAPTIVE REGIME ═══════════
+[diP, diM, adxV] = ta.dmi(adx_len, adx_len)
+gexKnown = gamma_flip != 0.0
+regime = gexKnown ? (close > gamma_flip ? Regime.meanrev : Regime.momentum) : (not na(adxV) and adxV > adx_trend_th ? Regime.momentum : Regime.meanrev)
+
+// ═══════════ RISK ENGINE ═══════════
+kellyRaw    = win_rate - ((1.0 - win_rate) / payoff)
+kellyUsed   = math.max(0.0, kellyRaw * kelly_frac)
+equity      = strategy.equity
+riskCash    = equity * (risk_pct / 100.0)
+stopDist    = nz(atr) * atr_stop_mult
+sizeUnits   = riskCash / math.max(stopDist, syminfo.mintick)
+maxUnits    = (equity * math.max(leverage, 1)) / math.max(close, syminfo.mintick)
+qtyFinal    = math.min(sizeUnits, maxUnits)
+notional    = qtyFinal * close
+margin      = notional / math.max(leverage, 1)
+liqDistPct  = 100.0 / math.max(leverage, 1)
+stopDistPct = (stopDist / math.max(close, syminfo.mintick)) * 100.0
+safeLev     = stopDistPct < liqDistPct * 0.5
+
+// ═══════════ SCORING (20 pts, regime-weighted) ═══════════
+bosPtsVal = regime == Regime.momentum ? 4 : regime == Regime.meanrev ? 2 : 3
+pdPtsVal  = regime == Regime.meanrev ? 3 : regime == Regime.momentum ? 1 : 2
+
+vwapLongOk  = not na(aVwap) and close > aVwap
+vwapShortOk = not na(aVwap) and close < aVwap
+sentLongOk  = funding_rate < -0.03 or ls_ratio < 0.7 or oi_zscore < -2.0
+sentShortOk = funding_rate > 0.03 or ls_ratio > 1.3 or oi_zscore > 2.0
+
+ptsBiasL   = biasDir == Direction.long ? 3 : 0
+ptsBiasS   = biasDir == Direction.short ? 3 : 0
+ptsVwapL   = vwapLongOk ? 2 : 0
+ptsVwapS   = vwapShortOk ? 2 : 0
+ptsSweepL  = sslSwept ? 3 : 0
+ptsSweepS  = bslSwept ? 3 : 0
+ptsStructL = (chochUp or bosUp) ? bosPtsVal : 0
+ptsStructS = (chochDown or bosDown) ? bosPtsVal : 0
+ptsFvgL    = bullFvgTap ? 2 : 0
+ptsFvgS    = bearFvgTap ? 2 : 0
+ptsPdL     = (inDiscount or oteLong) ? pdPtsVal : 0
+ptsPdS     = (inPremium or oteShort) ? pdPtsVal : 0
+ptsCvdL    = bullCvdDiv ? 1 : 0
+ptsCvdS    = bearCvdDiv ? 1 : 0
+ptsPocL    = pocReclaimUp ? 1 : 0
+ptsPocS    = pocReclaimDn ? 1 : 0
+ptsKzL     = inKillZone ? 2 : 0
+ptsKzS     = inKillZone ? 2 : 0
+ptsSentL   = sentLongOk ? 1 : 0
+ptsSentS   = sentShortOk ? 1 : 0
+
+longScore  = ptsBiasL + ptsVwapL + ptsSweepL + ptsStructL + ptsFvgL + ptsPdL + ptsCvdL + ptsPocL + ptsKzL + ptsSentL
+shortScore = ptsBiasS + ptsVwapS + ptsSweepS + ptsStructS + ptsFvgS + ptsPdS + ptsCvdS + ptsPocS + ptsKzS + ptsSentS
+
+sniperLong  = barstate.isconfirmed and longScore >= sniper_th and longScore > shortScore
+sniperShort = barstate.isconfirmed and shortScore >= sniper_th and shortScore > longScore
+watchLong   = barstate.isconfirmed and longScore >= watch_th and longScore < sniper_th
+watchShort  = barstate.isconfirmed and shortScore >= watch_th and shortScore < sniper_th
+
+// ═══════════ EXECUTION ═══════════
+levOk   = (not enforce_safe_lev) or safeLev
+canSize = not na(atr) and atr > 0 and stopDist > 0 and qtyFinal > 0
+
+goLong  = allow_long and sniperLong and levOk and canSize and (exit_on_opposite ? true : strategy.position_size == 0)
+goShort = allow_short and sniperShort and levOk and canSize and (exit_on_opposite ? true : strategy.position_size == 0)
+
+if goLong and strategy.position_size <= 0
+    strategy.entry(id="Long", direction=strategy.long, qty=qtyFinal, comment="APEX L " + str.tostring(longScore))
+    strategy.exit(id="Long Exit", from_entry="Long", stop=close - stopDist, limit=close + stopDist * payoff, comment_profit="TP", comment_loss="SL")
+if goShort and strategy.position_size >= 0
+    strategy.entry(id="Short", direction=strategy.short, qty=qtyFinal, comment="APEX S " + str.tostring(shortScore))
+    strategy.exit(id="Short Exit", from_entry="Short", stop=close + stopDist, limit=close - stopDist * payoff, comment_profit="TP", comment_loss="SL")
+
+// ═══════════ VISUALS ═══════════
+plot(series=aVwap, title="Anchored VWAP (D)", color=color.new(color.aqua, 25), linewidth=1)
+plot(series=htfMa, title="HTF MA", color=biasLong ? color.new(color.lime, 50) : biasShort ? color.new(color.red, 50) : color.new(color.gray, 50), linewidth=2)
+plot(series=bslLvl, title="BSL", color=color.new(color.red, 55), style=plot.style_linebr, linewidth=1)
+plot(series=sslLvl, title="SSL", color=color.new(color.lime, 55), style=plot.style_linebr, linewidth=1)
+plot(series=pdh, title="PDH", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1)
+plot(series=pdl, title="PDL", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1)
+plot(series=gamma_flip > 0 ? gamma_flip : na, title="Gamma Flip", color=color.new(color.yellow, 30), style=plot.style_linebr, linewidth=2)
+plot(series=call_wall > 0 ? call_wall : na, title="Call Wall", color=color.new(color.red, 35), style=plot.style_cross, linewidth=1)
+plot(series=put_wall > 0 ? put_wall : na, title="Put Wall", color=color.new(color.lime, 35), style=plot.style_cross, linewidth=1)
+plot(series=liq_cluster_above > 0 ? liq_cluster_above : na, title="Liq Cluster Above", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
+plot(series=liq_cluster_below > 0 ? liq_cluster_below : na, title="Liq Cluster Below", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
+
+plotshape(series=sniperLong, title="Sniper Long", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="SNIPE", textcolor=color.lime)
+plotshape(series=sniperShort, title="Sniper Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="SNIPE", textcolor=color.red)
+plotshape(series=watchLong, title="Watch Long", style=shape.circle, location=location.belowbar, color=color.new(color.lime, 45), size=size.tiny)
+plotshape(series=watchShort, title="Watch Short", style=shape.circle, location=location.abovebar, color=color.new(color.red, 45), size=size.tiny)
+plotshape(series=grabHigh and barstate.isconfirmed, title="Liquidity Grab High", style=shape.xcross, location=location.abovebar, color=color.new(color.orange, 20), size=size.tiny)
+plotshape(series=grabLow and barstate.isconfirmed, title="Liquidity Grab Low", style=shape.xcross, location=location.belowbar, color=color.new(color.orange, 20), size=size.tiny)
+plotchar(series=inducementHi and barstate.isconfirmed, title="Inducement High", char="i", location=location.abovebar, color=color.new(color.yellow, 20), size=size.tiny)
+plotchar(series=inducementLo and barstate.isconfirmed, title="Inducement Low", char="i", location=location.belowbar, color=color.new(color.yellow, 20), size=size.tiny)
+
+bgcolor(inSilver ? color.new(color.purple, 92) : inNyAm ? color.new(color.blue, 94) : inLondon ? color.new(color.teal, 94) : inAsian ? color.new(color.gray, 96) : na, title="Kill Zone Tint")
+
+// ═══════════ DASHBOARD ═══════════
+var table dash = table.new(position=position.top_right, columns=4, rows=17, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 70))
+
+f_row(int r, string nameTxt, string statusTxt, int lp, int sp) =>
+    table.cell(dash, 0, r, nameTxt, text_color=color.new(color.white, 15), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, r, statusTxt, text_color=color.new(color.silver, 10), text_size=size.tiny)
+    table.cell(dash, 2, r, str.tostring(lp), text_color=lp > 0 ? color.lime : color.new(color.gray, 40), text_size=size.tiny)
+    table.cell(dash, 3, r, str.tostring(sp), text_color=sp > 0 ? color.red : color.new(color.gray, 40), text_size=size.tiny)
+
+f_kv(int r, string k1, string v1, color c1, string k2, string v2, color c2) =>
+    table.cell(dash, 0, r, k1, text_color=color.new(color.white, 25), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, r, v1, text_color=c1, text_size=size.tiny)
+    table.cell(dash, 2, r, k2, text_color=color.new(color.white, 25), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 3, r, v2, text_color=c2, text_size=size.tiny)
+
+if show_dashboard and barstate.islast
+    table.cell(dash, 0, 0, "COMPONENT", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 45), text_halign=text.align_left)
+    table.cell(dash, 1, 0, "STATUS", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    table.cell(dash, 2, 0, "L", text_color=color.lime, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    table.cell(dash, 3, 0, "S", text_color=color.red, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    f_row(1, "HTF Bias", biasDir == Direction.long ? "LONG" : biasDir == Direction.short ? "SHORT" : "—", ptsBiasL, ptsBiasS)
+    f_row(2, "Anch. VWAP", vwapLongOk ? "ABOVE" : vwapShortOk ? "BELOW" : "—", ptsVwapL, ptsVwapS)
+    f_row(3, "Liq. Sweep", sslSwept ? "SSL" : bslSwept ? "BSL" : "—", ptsSweepL, ptsSweepS)
+    f_row(4, "Structure", chochUp or chochDown ? "CHoCH" : bosUp or bosDown ? "BOS" : "—", ptsStructL, ptsStructS)
+    f_row(5, "FVG @ CE", bullFvgTap ? "BULL TAP" : bearFvgTap ? "BEAR TAP" : "—", ptsFvgL, ptsFvgS)
+    f_row(6, "Prem/Disc", inDiscount ? "DISCOUNT" : inPremium ? "PREMIUM" : "EQ", ptsPdL, ptsPdS)
+    f_row(7, "CVD Div", bullCvdDiv ? "BULL" : bearCvdDiv ? "BEAR" : "—", ptsCvdL, ptsCvdS)
+    f_row(8, "POC", pocReclaimUp ? "RECLAIM ↑" : pocReclaimDn ? "LOST ↓" : "—", ptsPocL, ptsPocS)
+    f_row(9, "Kill Zone", inSilver ? "SILVER" : inNyAm ? "NY AM" : inLondon ? "LONDON" : inAsian ? "ASIA" : "—", ptsKzL, ptsKzS)
+    f_row(10, "Sentiment", sentLongOk ? "CROWD SHORT" : sentShortOk ? "CROWD LONG" : "NEUTRAL", ptsSentL, ptsSentS)
+    sigTxt = sniperLong ? "SNIPER LONG" : sniperShort ? "SNIPER SHORT" : watchLong ? "WATCH LONG" : watchShort ? "WATCH SHORT" : "—"
+    sigClr = sniperLong or watchLong ? color.lime : sniperShort or watchShort ? color.red : color.gray
+    regTxt = regime == Regime.momentum ? "MOMENTUM" : regime == Regime.meanrev ? "MEAN-REV" : "—"
+    posTxt = strategy.position_size > 0 ? "LONG " + str.tostring(strategy.position_size, "#.####") : strategy.position_size < 0 ? "SHORT " + str.tostring(math.abs(strategy.position_size), "#.####") : "FLAT"
+    posClr = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    f_kv(11, "Long", str.tostring(longScore) + "/20 (th " + str.tostring(sniper_th) + ")", longScore >= sniper_th ? color.lime : color.silver, "Short", str.tostring(shortScore) + "/20", shortScore >= sniper_th ? color.red : color.silver)
+    f_kv(12, "Signal", sigTxt, sigClr, "Regime", regTxt, color.aqua)
+    f_kv(13, "Funding", str.tostring(funding_rate, "#.####") + "%", funding_rate < 0 ? color.lime : funding_rate > 0 ? color.red : color.gray, "RVOL", hasVol ? str.tostring(rvol, "#.##") : "N/A", rvol >= rvol_min ? color.lime : color.gray)
+    f_kv(14, "Size", str.tostring(qtyFinal, "#.####"), color.silver, "Margin", "$" + str.tostring(margin, "#.##"), color.silver)
+    f_kv(15, "SAFE-LEV", safeLev ? "YES" : "NO", safeLev ? color.lime : color.red, "Kelly", str.tostring(kellyUsed * 100.0, "#.##") + "%", kellyUsed > 0 ? color.lime : color.red)
+    f_kv(16, "Position", posTxt, posClr, "Equity", "$" + str.tostring(equity, "#.##"), color.silver)
+
+// ═══════════ ALERTS (confirmed bars only) ═══════════
+silverEntered = inSilver and (bar_index == 0 or not inSilver[1]) and barstate.isconfirmed
+alertcondition(sniperLong, title="APEX SNIPER LONG", message="APEX SNIPER LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sniperShort, title="APEX SNIPER SHORT", message="APEX SNIPER SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchLong, title="APEX WATCH LONG", message="APEX WATCH LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchShort, title="APEX WATCH SHORT", message="APEX WATCH SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bslSwept and barstate.isconfirmed, title="BSL Sweep", message="BSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sslSwept and barstate.isconfirmed, title="SSL Sweep", message="SSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
+alertcondition((grabHigh or grabLow) and barstate.isconfirmed, title="Liquidity Grab", message="LIQUIDITY GRAB | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(silverEntered, title="Silver Bullet Window", message="SILVER BULLET WINDOW OPEN | {{ticker}} {{interval}} @ {{close}}")
