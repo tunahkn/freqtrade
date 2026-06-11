@@ -130,9 +130,17 @@ float rvol    = hasVol ? volume / volBase : 1.0
 bool  disp    = (not hasVol) or (rvol >= rvol_min)
 
 // ===== HTF BIAS =====
-bool  htfValid    = timeframe.in_seconds(htf_tf) >= timeframe.in_seconds(timeframe.period)
-float htfCloseRaw = request.security(syminfo.tickerid, htf_tf, close, lookahead = barmerge.lookahead_off)
-float htfMaRaw    = request.security(syminfo.tickerid, htf_tf, maFn(close, ma_len, ma_type), lookahead = barmerge.lookahead_off)
+// Auto-scale guard: if the chosen HTF is LOWER than the chart (e.g. 4H default
+// on a Daily chart), the bias filter would silently fall back to the chart's
+// own MA — i.e. no real higher-timeframe confirmation. Promote it to a genuine
+// higher TF so the filter keeps working on 1D/1W charts. 4H/1H behavior (where
+// the golden params were validated) is unchanged.
+htfTooLow  = timeframe.in_seconds(htf_tf) < timeframe.in_seconds(timeframe.period)
+autoHtf    = timeframe.in_seconds(timeframe.period) >= timeframe.in_seconds("W") ? "M" : "W"
+htfUse     = htfTooLow ? autoHtf : htf_tf
+bool  htfValid    = timeframe.in_seconds(htfUse) >= timeframe.in_seconds(timeframe.period)
+float htfCloseRaw = request.security(syminfo.tickerid, htfUse, close, lookahead = barmerge.lookahead_off)
+float htfMaRaw    = request.security(syminfo.tickerid, htfUse, maFn(close, ma_len, ma_type), lookahead = barmerge.lookahead_off)
 float htfClose    = htfValid ? htfCloseRaw : close
 float htfMa       = htfValid ? htfMaRaw    : maFn(close, ma_len, ma_type)
 bool  biasLong    = not na(htfClose) and not na(htfMa) and htfClose > htfMa

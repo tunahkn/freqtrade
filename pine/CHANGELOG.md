@@ -23,6 +23,29 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — ⭐ İLK GERÇEK OOS (kullanıcı ekranı) + HTF auto-scale BUG FIX
+**Kullanıcı v9.5'i Binance ETHUSDT.P GÜNLÜK'te 27 Kas 2019 → 11 Haz 2026'da koştu** —
+altın ayarların HİÇ görmediği dönem (tarama 2017-19'du). Sonuç:
+- **Profit Factor 2.278** ✅ (eşik >1.3 geçildi, el değmemiş veride)
+- Max DD **%2.5** ✅ (çok düşük)
+- Net **+%9.51**, Win **%50 (7/14)** — ama yalnızca **14 işlem** ⚠️ istatistiksel olarak ince
+
+**TEŞHİS — neden sadece 14 işlem:** Gerçek bir **bug** bulundu (satır 132).
+`htf_tf` varsayılanı 4H; günlük grafikte 4H < 1G olduğundan `htfValid=false` oluyor ve
+üst-zaman-dilimi bias filtresi **sessizce grafiğin kendi MA'sına düşüyordu** — yani günlükte
+gerçek HTF onayı yoktu, filtre kendini kapatıyordu.
+
+**DÜZELTME (v9.5.1, `pine/APEX_SNIPER_v9.pine`):** HTF auto-scale guard.
+HTF grafikten düşük kalırsa otomatik yükseltilir (günlük→haftalık, haftalık→aylık).
+4H/1H davranışı **değişmedi** (orada HTF zaten ≥ grafik) → doğrulanmış altın sayılar korunur.
+Saf-pandas motor HTF-security kullanmadığından tüm Python doğrulamaları da etkilenmez.
+
+**HÜKÜM:** OOS daily PF 2.278 dürüstçe CESARET VERİCİ (görülmemiş veride eşik üstü), ama
+n=14 "kanıtlandı" demek için yetersiz. Daily yapısal olarak sinyal-kıt (sniper eşiği + EMA200).
+**Sonraki kapı:** AYNI 2019-2026 OOS dönemini **4H'de** koş → orada n anlamlı (≈100+),
+gerçek hüküm orada verilir. Filtreleri gevşetip işlem üretmek YASAK (edge kalitesini bozar).
+
+
 ### 2026-06-11 — v9.5 ZAMAN DİLİMİ MATRİSİ (1H / 4H / 1D, altın ayarlar sabit)
 Tarama YALNIZCA 4H'de yapılmıştı → 1H ve 1D koşuları zaman-dilimi boyutunda yarı-OOS sayılır.
 Gerçek 2017-2019, maliyet dahil, ayarlar üç dilimde de AYNI (sniper=10, atr=2.0, trail=4.0, EMA200 kapı):
