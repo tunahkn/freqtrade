@@ -128,6 +128,9 @@ def main():
     ap.add_argument("--rr", type=float, default=2.0)
     ap.add_argument("--risk", type=float, default=1.0)
     ap.add_argument("--no-short", action="store_true")
+    ap.add_argument("--long-regime", action="store_true",
+                    help="gate longs: close > rising EMA200 (bear guard)")
+    ap.add_argument("--trail-atr-m", type=float, default=2.5)
     ap.add_argument("--sniper-th", type=int, default=14)
     ap.add_argument("--min-cats", type=int, default=2)
     ap.add_argument("--swing-len", type=int, default=8)
@@ -143,9 +146,13 @@ def main():
         df = apex_engine.compute(df, {"sniper_th": args.sniper_th,
                                       "min_cats": args.min_cats,
                                       "swing_len": args.swing_len})
+        if args.long_regime:
+            ema = df["close"].ewm(span=200, adjust=False).mean()
+            df["enter_long"] = df["enter_long"] & (df["close"] > ema) & (ema.diff() > 0)
         trades, final_eq = bt.simulate(
             df, fee=args.fee, slip=args.slip, atr_m=args.atr_m, rr=args.rr,
-            risk_pct=args.risk, allow_long=True, allow_short=not args.no_short)
+            risk_pct=args.risk, allow_long=True, allow_short=not args.no_short,
+            trail_atr_m=args.trail_atr_m)
         m = institutional_metrics(trades, final_eq, df)
         print(scorecard(Path(f).stem, m))
         if m:

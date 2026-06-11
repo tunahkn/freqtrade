@@ -23,6 +23,37 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — ⭐⭐ ŞAMPİYON ONARIMI (v9.4): teşhis + kanıtlı düzeltme
+Dünkü 🔴 hükmün (2017-19'da 0/6 pozitif) **kök nedeni bulundu**, tahminle değil deneyle:
+
+**Teşhis (`scripts/apex_regime_research.py`):**
+1. 2017'de BTC +%1328 koşarken sistem +%4 aldı → sinyal değil, **ÇIKIŞ** sorunu
+2. `atr_stop_m=1.0` (2019-26 ETH'e "optimize" edilen değer) yüksek volatilitede her
+   pozisyonu trend ödemeden kesiyordu — klasik overfit kelepçesi
+3. Literatür-standardı 2.0 ATR (Chandelier/Turtle; bu veriden madenlenmedi) + yükselen
+   EMA200 rejim kapısı → **ilk kez 3/3 varlık pozitif** (acımasız 2017-19 tam döngüde)
+
+**Sonuçlar (gerçek Bitfinex verisi, fee+slip dahil, long-only + rejim kapısı + atr 2.0 / trail 3.0):**
+| Varlık | 4H | 1H |
+|--------|-----|-----|
+| BTC | PF 1.06 / +1.4% | **PF 1.37 / +49.4% / Sharpe 1.31 / MC %100 / n=177 → 4/5 kapı 🟡** |
+| ETH | PF 1.24 / +3.8% | PF 1.22 / +24.0% / MC %100 / n=151 → 2/5 |
+| LTC | PF 1.71 / +17.9% | PF 0.62 / −33.9% → 1/5 ❌ istikrarsız |
+
+Onarım öncesi: 0/6 pozitif → sonrası: **5/6 pozitif**. ALPHA hâlâ negatif (mega-boğada
+B&H yenilmez) — sistemin dürüst kimliği değişmedi: düşük-DD trend katılımcısı.
+
+**v9.4 değişiklikleri (`pine/APEX_SNIPER_v9.pine`):**
+- `useLongRegime` (default ON): long yalnızca fiyat > YÜKSELEN EMA200 iken
+- `regimeEmaLen` (200): tek rejim EMA'sı (long+short kapıları paylaşır)
+- `atr_stop_m` default 1.5 → **2.0**, `trailAtrM` 2.5 → **3.0**
+- Tablo: "Regime" satırı (LONG OK / SHORT OK / BLOCKED)
+- Doğrulayıcıya `--long-regime`, `--trail-atr-m` bayrakları eklendi
+
+**SONRAKİ KAPI (taze OOS):** Bugünkü ayar 2017-19'da bulundu → 2019-2026 artık el değmemiş
+test seti. Kullanıcı TradingView'de v9.4 default'larıyla ETH/BTC 4H+1H koşacak. PF>1.3 çıkarsa
+🏆; çıkmazsa dürüstçe raporlanır.
+
 ### 2026-06-11 — ⭐ GERÇEK VERİ, GERÇEK OOS: 2017-2019 TAM DÖNGÜ (kendi indirdiğimiz Bitfinex 1m → 4H)
 Kaynak: Bitfinex gerçek 1-dakika mumları (GitHub arşivi), 3 varlık × 3 yıl, 1H+4H'ye resample.
 Dönem 2017 boğa + 2018 ayı + 2019 toparlanma = **donmuş ayarlar için gerçek out-of-sample**.
