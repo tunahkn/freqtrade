@@ -82,6 +82,8 @@ watch_th   = input.int(10,  "Watch threshold",  minval = 1, maxval = 20, group =
 minCats    = input.int(3,   "Min categories", minval = 1, maxval = 4, group = "Scoring")
 setup_win  = input.int(10,  "Setup memory window (bars)", minval = 1, maxval = 50, group = "Scoring")
 gradeAB    = input.bool(true, "Only Grade A/B entries", group = "Scoring")
+tradeLong  = input.bool(true,  "Trade LONG", group = "Direction")
+tradeShort = input.bool(false, "Trade SHORT (3-asset test: structurally weak)", group = "Direction")
 useShortRegime = input.bool(true,  "Short only below regime EMA (OOS fix)", group = "Scoring")
 shortEmaLen    = input.int(200, "Short regime EMA length", minval = 10, maxval = 500, group = "Scoring")
 
@@ -367,8 +369,8 @@ var int   eBar   = na
 
 // ===== ENTRIES =====
 bool shortRegiOK = not useShortRegime or (not na(shortRegEma) and close < shortRegEma)
-goLong  = sniperLong  and strategy.position_size == 0 and canTrade
-goShort = sniperShort and strategy.position_size == 0 and canTrade and shortRegiOK
+goLong  = tradeLong  and sniperLong  and strategy.position_size == 0 and canTrade
+goShort = tradeShort and sniperShort and strategy.position_size == 0 and canTrade and shortRegiOK
 float qty = f_qty()
 
 if goLong and not na(qty)
