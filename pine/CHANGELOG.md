@@ -23,6 +23,26 @@ Tüm tarihler UTC. "En iyi sürüm" kararı verilince burası işaretlenecek ve 
 
 ## 📒 DOĞRULAMA GÜNLÜĞÜ
 
+### 2026-06-11 — v9.5 ZAMAN DİLİMİ MATRİSİ (1H / 4H / 1D, altın ayarlar sabit)
+Tarama YALNIZCA 4H'de yapılmıştı → 1H ve 1D koşuları zaman-dilimi boyutunda yarı-OOS sayılır.
+Gerçek 2017-2019, maliyet dahil, ayarlar üç dilimde de AYNI (sniper=10, atr=2.0, trail=4.0, EMA200 kapı):
+
+| TF | BTC | ETH | LTC | Okuma |
+|----|-----|-----|-----|-------|
+| **1D** | PF 1.72 / +4.6% / 9 işlem | PF 2.92 / +8.2% / 7 | PF 4.23 / +6.7% / 5 | Hepsi pozitif ama sinyal kıtlığı (istatistik anlamsız) |
+| **4H** | **PF 2.36 / +72% / DD −8.9%** | **PF 3.14 / +93% / DD −3.1%** | PF 1.41 / +21% / DD −8.8% | ⭐ TATLI NOKTA |
+| **1H** | PF 1.26 / +108% / DD −34% / n=294 | PF 1.19 / +63% / DD −39% / n=281 | PF 1.01 / +2% / DD −26% / n=280 | Kâr var ama gürültü+DD yüksek |
+
+**Bulgular:**
+- **9/9 varlık-dilim kombinasyonu net pozitif** (onarım öncesi 0/6'ydı)
+- 1H'de n=280-294 → istatistiksel anlamlı VE pozitif → motor salt 4H'e curve-fit değil
+- Edge 4H'de yoğunlaşıyor: PF en yüksek, DD tek hane. 1H'de PF inceliyor, DD 3-4 katına çıkıyor
+- 1D'de mantık taşınıyor (hepsi pozitif) ama sniper kurulumu günlükte nadir → sinyal açlığı
+
+**KULLANIM TAVSİYESİ:** Ana dilim **4H**. 1H yalnızca düşük riskle (riskPct 0.5) ve sabırlı DD
+toleransıyla. 1D, sinyal azlığından tek başına yetersiz — 4H'ye HTF onayı olarak zaten gömülü.
+
+
 ### 2026-06-11 — ⭐⭐⭐ v9.5: ALTIN AYAR TARAMASI + minimalist kurumsal panel
 **Parametre taraması (`scripts/apex_sweep.py`)** — gerçek 2017-2019 Bitfinex, fee+slip dahil,
 216 kombinasyon × 3 varlık. Overfit'ten kaçınmak için tek tepe değil **3 varlıkta birden
