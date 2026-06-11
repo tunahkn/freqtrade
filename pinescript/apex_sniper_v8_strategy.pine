@@ -113,6 +113,18 @@ allow_short      = input.bool(true, "Allow Short Entries", group=g15)
 enforce_safe_lev = input.bool(true, "Block Entries When Leverage Unsafe", group=g15)
 exit_on_opposite = input.bool(true, "Reverse on Opposite Sniper Signal", group=g15)
 
+g16 = "16 · Visual Toggles"
+show_fvg           = input.bool(true, "FVG Boxes", group=g16)
+show_ob            = input.bool(true, "Order Block Boxes", group=g16)
+show_liq_levels    = input.bool(true, "BSL / SSL Lines", group=g16)
+show_prev_levels   = input.bool(true, "PDH / PDL Lines", group=g16)
+show_vp_lines      = input.bool(true, "Volume Profile Lines", group=g16)
+show_kz_bg         = input.bool(true, "Kill Zone Background", group=g16)
+show_grabs         = input.bool(true, "Liquidity Grab Markers", group=g16)
+show_watch         = input.bool(true, "Watch Signals", group=g16)
+show_struct_labels = input.bool(true, "BOS / CHoCH Labels", group=g16)
+levels_show_last   = input.int(150, "Level Plots: Last N Bars Only", minval=10, maxval=500, group=g16, tooltip="Limits BSL/SSL and previous-period level plots to the most recent N bars to keep the chart clean.")
+
 // ═══════════ HELPERS ═══════════
 maFn(float src, simple int len, simple string t) =>
     e = ta.ema(src, len)
@@ -172,13 +184,13 @@ newBear = bar_index > 1 and not na(atr) and high < low[2] and (low[2] - high) >=
 
 if newBull
     bullMid = (low + high[2]) / 2.0
-    bxB = box.new(left=bar_index - 2, top=low, right=bar_index, bottom=high[2], bgcolor=color.new(color.teal, 82), border_color=color.new(color.teal, 55))
-    ceB = show_ce ? line.new(x1=bar_index - 2, y1=bullMid, x2=bar_index, y2=bullMid, color=color.new(color.teal, 30), style=line.style_dashed, width=1) : na
+    bxB = show_fvg ? box.new(left=bar_index - 2, top=low, right=bar_index, bottom=high[2], bgcolor=color.new(color.teal, 82), border_color=color.new(color.teal, 55)) : na
+    ceB = show_fvg and show_ce ? line.new(x1=bar_index - 2, y1=bullMid, x2=bar_index, y2=bullMid, color=color.new(color.teal, 30), style=line.style_dashed, width=1) : na
     array.push(fvgs, FVG.new(top=low, bot=high[2], barIdx=bar_index, bull=true, bx=bxB, ce=ceB))
 if newBear
     bearMid = (low[2] + high) / 2.0
-    bxS = box.new(left=bar_index - 2, top=low[2], right=bar_index, bottom=high, bgcolor=color.new(color.maroon, 82), border_color=color.new(color.maroon, 55))
-    ceS = show_ce ? line.new(x1=bar_index - 2, y1=bearMid, x2=bar_index, y2=bearMid, color=color.new(color.maroon, 30), style=line.style_dashed, width=1) : na
+    bxS = show_fvg ? box.new(left=bar_index - 2, top=low[2], right=bar_index, bottom=high, bgcolor=color.new(color.maroon, 82), border_color=color.new(color.maroon, 55)) : na
+    ceS = show_fvg and show_ce ? line.new(x1=bar_index - 2, y1=bearMid, x2=bar_index, y2=bearMid, color=color.new(color.maroon, 30), style=line.style_dashed, width=1) : na
     array.push(fvgs, FVG.new(top=low[2], bot=high, barIdx=bar_index, bull=false, bx=bxS, ce=ceS))
 
 bullFvgTap = false
@@ -216,10 +228,10 @@ bullOB = bar_index > 0 and not na(atr) and close[1] < open[1] and close > high[1
 bearOB = bar_index > 0 and not na(atr) and close[1] > open[1] and close < low[1] and (high - low) > atr * ob_atr_mult and disp
 
 if bullOB
-    obxB = box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.green, 80), border_color=color.new(color.green, 50))
+    obxB = show_ob ? box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.green, 80), border_color=color.new(color.green, 50)) : na
     array.push(obs, OB.new(top=high[1], bot=low[1], bull=true, bx=obxB))
 if bearOB
-    obxS = box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.red, 80), border_color=color.new(color.red, 50))
+    obxS = show_ob ? box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.red, 80), border_color=color.new(color.red, 50)) : na
     array.push(obs, OB.new(top=high[1], bot=low[1], bull=false, bx=obxS))
 
 if array.size(obs) > 0
@@ -339,7 +351,7 @@ pocReclaimDn = bar_index > 0 and not na(poc) and close < poc and close[1] >= poc
 var line pocLn = na
 var line vahLn = na
 var line valLn = na
-if barstate.islast and not na(poc)
+if barstate.islast and show_vp_lines and not na(poc)
     line.delete(pocLn)
     line.delete(vahLn)
     line.delete(valLn)
@@ -408,6 +420,12 @@ sniperShort = barstate.isconfirmed and shortScore >= sniper_th and shortScore > 
 watchLong   = barstate.isconfirmed and longScore >= watch_th and longScore < sniper_th
 watchShort  = barstate.isconfirmed and shortScore >= watch_th and shortScore < sniper_th
 
+// Edge triggers: fire once when a signal state is first entered, not on every bar it persists
+sniperLongNew  = sniperLong and (bar_index == 0 or not sniperLong[1])
+sniperShortNew = sniperShort and (bar_index == 0 or not sniperShort[1])
+watchLongNew   = watchLong and (bar_index == 0 or not watchLong[1])
+watchShortNew  = watchShort and (bar_index == 0 or not watchShort[1])
+
 // ═══════════ EXECUTION ═══════════
 levOk   = (not enforce_safe_lev) or safeLev
 canSize = not na(atr) and atr > 0 and stopDist > 0 and qtyFinal > 0
@@ -425,26 +443,30 @@ if goShort and strategy.position_size >= 0
 // ═══════════ VISUALS ═══════════
 plot(series=aVwap, title="Anchored VWAP (D)", color=color.new(color.aqua, 25), linewidth=1)
 plot(series=htfMa, title="HTF MA", color=biasLong ? color.new(color.lime, 50) : biasShort ? color.new(color.red, 50) : color.new(color.gray, 50), linewidth=2)
-plot(series=bslLvl, title="BSL", color=color.new(color.red, 55), style=plot.style_linebr, linewidth=1)
-plot(series=sslLvl, title="SSL", color=color.new(color.lime, 55), style=plot.style_linebr, linewidth=1)
-plot(series=pdh, title="PDH", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1)
-plot(series=pdl, title="PDL", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1)
+plot(series=show_liq_levels ? bslLvl : na, title="BSL", color=color.new(color.red, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_liq_levels ? sslLvl : na, title="SSL", color=color.new(color.lime, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pdh : na, title="PDH", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pdl : na, title="PDL", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
 plot(series=gamma_flip > 0 ? gamma_flip : na, title="Gamma Flip", color=color.new(color.yellow, 30), style=plot.style_linebr, linewidth=2)
 plot(series=call_wall > 0 ? call_wall : na, title="Call Wall", color=color.new(color.red, 35), style=plot.style_cross, linewidth=1)
 plot(series=put_wall > 0 ? put_wall : na, title="Put Wall", color=color.new(color.lime, 35), style=plot.style_cross, linewidth=1)
 plot(series=liq_cluster_above > 0 ? liq_cluster_above : na, title="Liq Cluster Above", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
 plot(series=liq_cluster_below > 0 ? liq_cluster_below : na, title="Liq Cluster Below", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
 
-plotshape(series=sniperLong, title="Sniper Long", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="SNIPE", textcolor=color.lime)
-plotshape(series=sniperShort, title="Sniper Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="SNIPE", textcolor=color.red)
-plotshape(series=watchLong, title="Watch Long", style=shape.circle, location=location.belowbar, color=color.new(color.lime, 45), size=size.tiny)
-plotshape(series=watchShort, title="Watch Short", style=shape.circle, location=location.abovebar, color=color.new(color.red, 45), size=size.tiny)
-plotshape(series=grabHigh and barstate.isconfirmed, title="Liquidity Grab High", style=shape.xcross, location=location.abovebar, color=color.new(color.orange, 20), size=size.tiny)
-plotshape(series=grabLow and barstate.isconfirmed, title="Liquidity Grab Low", style=shape.xcross, location=location.belowbar, color=color.new(color.orange, 20), size=size.tiny)
-plotchar(series=inducementHi and barstate.isconfirmed, title="Inducement High", char="i", location=location.abovebar, color=color.new(color.yellow, 20), size=size.tiny)
-plotchar(series=inducementLo and barstate.isconfirmed, title="Inducement Low", char="i", location=location.belowbar, color=color.new(color.yellow, 20), size=size.tiny)
+plotshape(series=sniperLongNew, title="Sniper Long", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="SNIPE", textcolor=color.lime)
+plotshape(series=sniperShortNew, title="Sniper Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="SNIPE", textcolor=color.red)
+plotshape(series=show_watch and watchLongNew, title="Watch Long", style=shape.circle, location=location.belowbar, color=color.new(color.lime, 45), size=size.tiny)
+plotshape(series=show_watch and watchShortNew, title="Watch Short", style=shape.circle, location=location.abovebar, color=color.new(color.red, 45), size=size.tiny)
+plotshape(series=show_grabs and grabHigh and barstate.isconfirmed, title="Liquidity Grab High", style=shape.xcross, location=location.abovebar, color=color.new(color.orange, 20), size=size.tiny)
+plotshape(series=show_grabs and grabLow and barstate.isconfirmed, title="Liquidity Grab Low", style=shape.xcross, location=location.belowbar, color=color.new(color.orange, 20), size=size.tiny)
+plotchar(series=show_grabs and inducementHi and barstate.isconfirmed, title="Inducement High", char="i", location=location.abovebar, color=color.new(color.yellow, 20), size=size.tiny)
+plotchar(series=show_grabs and inducementLo and barstate.isconfirmed, title="Inducement Low", char="i", location=location.belowbar, color=color.new(color.yellow, 20), size=size.tiny)
+plotshape(series=show_struct_labels and bosUp and barstate.isconfirmed, title="BOS Up", style=shape.diamond, location=location.belowbar, color=color.new(color.teal, 25), size=size.tiny, text="BOS", textcolor=color.new(color.teal, 10))
+plotshape(series=show_struct_labels and bosDown and barstate.isconfirmed, title="BOS Down", style=shape.diamond, location=location.abovebar, color=color.new(color.maroon, 25), size=size.tiny, text="BOS", textcolor=color.new(color.maroon, 10))
+plotshape(series=show_struct_labels and chochUp and barstate.isconfirmed, title="CHoCH Up", style=shape.diamond, location=location.belowbar, color=color.new(color.yellow, 25), size=size.tiny, text="CHoCH", textcolor=color.new(color.yellow, 10))
+plotshape(series=show_struct_labels and chochDown and barstate.isconfirmed, title="CHoCH Down", style=shape.diamond, location=location.abovebar, color=color.new(color.yellow, 25), size=size.tiny, text="CHoCH", textcolor=color.new(color.yellow, 10))
 
-bgcolor(inSilver ? color.new(color.purple, 92) : inNyAm ? color.new(color.blue, 94) : inLondon ? color.new(color.teal, 94) : inAsian ? color.new(color.gray, 96) : na, title="Kill Zone Tint")
+bgcolor(show_kz_bg ? (inSilver ? color.new(color.purple, 92) : inNyAm ? color.new(color.blue, 94) : inLondon ? color.new(color.teal, 94) : inAsian ? color.new(color.gray, 96) : na) : na, title="Kill Zone Tint")
 
 // ═══════════ DASHBOARD ═══════════
 var table dash = table.new(position=position.top_right, columns=4, rows=17, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 70))
@@ -490,10 +512,10 @@ if show_dashboard and barstate.islast
 
 // ═══════════ ALERTS (confirmed bars only) ═══════════
 silverEntered = inSilver and (bar_index == 0 or not inSilver[1]) and barstate.isconfirmed
-alertcondition(sniperLong, title="APEX SNIPER LONG", message="APEX SNIPER LONG | {{ticker}} {{interval}} @ {{close}}")
-alertcondition(sniperShort, title="APEX SNIPER SHORT", message="APEX SNIPER SHORT | {{ticker}} {{interval}} @ {{close}}")
-alertcondition(watchLong, title="APEX WATCH LONG", message="APEX WATCH LONG | {{ticker}} {{interval}} @ {{close}}")
-alertcondition(watchShort, title="APEX WATCH SHORT", message="APEX WATCH SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sniperLongNew, title="APEX SNIPER LONG", message="APEX SNIPER LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sniperShortNew, title="APEX SNIPER SHORT", message="APEX SNIPER SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchLongNew, title="APEX WATCH LONG", message="APEX WATCH LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchShortNew, title="APEX WATCH SHORT", message="APEX WATCH SHORT | {{ticker}} {{interval}} @ {{close}}")
 alertcondition(bslSwept and barstate.isconfirmed, title="BSL Sweep", message="BSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
 alertcondition(sslSwept and barstate.isconfirmed, title="SSL Sweep", message="SSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
 alertcondition((grabHigh or grabLow) and barstate.isconfirmed, title="Liquidity Grab", message="LIQUIDITY GRAB | {{ticker}} {{interval}} @ {{close}}")
