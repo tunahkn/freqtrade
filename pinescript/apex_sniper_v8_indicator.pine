@@ -119,6 +119,7 @@ show_kz_bg         = input.bool(true, "Kill Zone Background", group=g15)
 show_grabs         = input.bool(true, "Liquidity Grab Markers", group=g15)
 show_watch         = input.bool(true, "Watch Signals", group=g15)
 show_struct_labels = input.bool(true, "BOS / CHoCH Labels", group=g15)
+show_trade_plan    = input.bool(true, "Trade Plan (Entry/SL/TP1/TP2) on Sniper", group=g15, tooltip="Draws the full hit-and-run plan at each sniper signal: entry, ATR stop, TP1 (1R partial) and TP2 (payoff R) with the signal score.")
 levels_show_last   = input.int(150, "Level Plots: Last N Bars Only", minval=10, maxval=500, group=g15, tooltip="Limits BSL/SSL and previous-period level plots to the most recent N bars to keep the chart clean.")
 
 // ═══════════ HELPERS ═══════════
@@ -474,6 +475,32 @@ plotshape(series=show_struct_labels and chochUp and barstate.isconfirmed, title=
 plotshape(series=show_struct_labels and chochDown and barstate.isconfirmed, title="CHoCH Down", style=shape.diamond, location=location.abovebar, color=color.new(color.yellow, 25), size=size.tiny, text="CHoCH", textcolor=color.new(color.yellow, 10))
 
 bgcolor(show_kz_bg ? (inSilver ? color.new(color.purple, 92) : inNyAm ? color.new(color.blue, 94) : inLondon ? color.new(color.teal, 94) : inAsian ? color.new(color.gray, 96) : na) : na, title="Kill Zone Tint")
+
+// ═══════════ TRADE PLAN (hit & run levels on sniper signals) ═══════════
+var line  planEntry = na
+var line  planStop  = na
+var line  planTp1   = na
+var line  planTp2   = na
+var label planLbl   = na
+if show_trade_plan and (sniperLongNew or sniperShortNew) and not na(atr) and atr > 0
+    dirMult = sniperLongNew ? 1.0 : -1.0
+    pe  = close
+    psl = pe - dirMult * stopDist
+    pt1 = pe + dirMult * stopDist
+    pt2 = pe + dirMult * stopDist * payoff
+    line.delete(planEntry)
+    line.delete(planStop)
+    line.delete(planTp1)
+    line.delete(planTp2)
+    label.delete(planLbl)
+    x2 = bar_index + 20
+    planEntry := line.new(x1=bar_index, y1=pe, x2=x2, y2=pe, color=color.new(color.gray, 20), style=line.style_solid, width=1)
+    planStop  := line.new(x1=bar_index, y1=psl, x2=x2, y2=psl, color=color.new(color.red, 10), style=line.style_solid, width=2)
+    planTp1   := line.new(x1=bar_index, y1=pt1, x2=x2, y2=pt1, color=color.new(color.lime, 40), style=line.style_dashed, width=1)
+    planTp2   := line.new(x1=bar_index, y1=pt2, x2=x2, y2=pt2, color=color.new(color.lime, 0), style=line.style_solid, width=2)
+    scoreTxt = sniperLongNew ? str.tostring(longScore) : str.tostring(shortScore)
+    sideTxt  = sniperLongNew ? "LONG" : "SHORT"
+    planLbl  := label.new(x=x2, y=pt2, text=sideTxt + " " + scoreTxt + "/20\nSL " + str.tostring(psl, format.mintick) + "\nTP1 " + str.tostring(pt1, format.mintick) + " (1R, bank 50%)\nTP2 " + str.tostring(pt2, format.mintick) + " (" + str.tostring(payoff, "#.#") + "R)", style=sniperLongNew ? label.style_label_lower_left : label.style_label_upper_left, color=color.new(color.black, 30), textcolor=sniperLongNew ? color.lime : color.red, size=size.small)
 
 // ═══════════ DASHBOARD ═══════════
 var table dash = table.new(position=position.top_right, columns=4, rows=16, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 70))

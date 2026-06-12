@@ -1,0 +1,6 @@
+variant,trades,winrate,pf,ret_pct,maxdd_pct
+"A baseline (full 2.5R exit)",51,37.3,1.66,9.88,2.71
+"B TP1 50% @1R + BE runner",54,24.1,1.51,5.44,3.05
+"C B + time-stop 20 bars",55,34.5,1.90,7.06,2.62
+"D B + conviction sizing",54,24.1,1.43,5.34,3.69
+"E C + conviction sizing",55,34.5,1.73,6.95,3.44

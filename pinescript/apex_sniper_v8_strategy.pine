@@ -113,6 +113,12 @@ allow_long       = input.bool(true, "Allow Long Entries", group=g15)
 allow_short      = input.bool(true, "Allow Short Entries", group=g15)
 enforce_safe_lev = input.bool(true, "Block Entries When Leverage Unsafe", group=g15)
 exit_on_opposite = input.bool(true, "Reverse on Opposite Sniper Signal", group=g15)
+use_tp1          = input.bool(true, "TP1: Partial Take-Profit + Breakeven", group=g15, tooltip="Hit & run core: bank part of the position at TP1, move the stop to entry, let the rest run to the final target.")
+tp1_r            = input.float(1.0, "TP1 Distance (R)", minval=0.2, step=0.1, group=g15)
+tp1_pct          = input.float(50.0, "TP1 Size (% of position)", minval=10.0, maxval=90.0, step=5.0, group=g15)
+be_after_tp1     = input.bool(true, "Move Stop to Breakeven After TP1", group=g15)
+time_stop_bars   = input.int(20, "Time Stop (bars, 0 = off)", minval=0, maxval=200, group=g15, tooltip="Closes a trade that has not reached TP1 within N bars — frees margin from dead trades.")
+conviction_sizing = input.bool(false, "Conviction Sizing (1.5x @ th+2, 2x @ th+4)", group=g15, tooltip="Scales risk with signal score. Backtests on ETH/BTC 4h 2017-2020 showed no edge from this — enable only with your own evidence.")
 
 g16 = "16 · Visual Toggles"
 show_fvg           = input.bool(true, "FVG Boxes", group=g16)
@@ -458,12 +464,56 @@ canSize = not na(atr) and atr > 0 and stopDist > 0 and qtyFinal > 0
 goLong  = allow_long and sniperLong and levOk and canSize and (exit_on_opposite ? true : strategy.position_size == 0)
 goShort = allow_short and sniperShort and levOk and canSize and (exit_on_opposite ? true : strategy.position_size == 0)
 
+riskMultL = conviction_sizing ? (longScore >= sniper_th + 4 ? 2.0 : longScore >= sniper_th + 2 ? 1.5 : 1.0) : 1.0
+riskMultS = conviction_sizing ? (shortScore >= sniper_th + 4 ? 2.0 : shortScore >= sniper_th + 2 ? 1.5 : 1.0) : 1.0
+qtyLong   = math.min(sizeUnits * riskMultL, maxUnits)
+qtyShort  = math.min(sizeUnits * riskMultS, maxUnits)
+
+var float entryPx  = na
+var float stopPx0  = na
+var float tp1Px    = na
+var float tp2Px    = na
+var int   entryBar = na
+var bool  tp1Done  = false
+
 if goLong and strategy.position_size <= 0
-    strategy.entry(id="Long", direction=strategy.long, qty=qtyFinal, comment="APEX L " + str.tostring(longScore))
-    strategy.exit(id="Long Exit", from_entry="Long", stop=close - stopDist, limit=close + stopDist * payoff, comment_profit="TP", comment_loss="SL")
+    entryPx  := close
+    stopPx0  := close - stopDist
+    tp1Px    := close + stopDist * tp1_r
+    tp2Px    := close + stopDist * payoff
+    entryBar := bar_index
+    tp1Done  := false
+    strategy.entry(id="Long", direction=strategy.long, qty=qtyLong, comment="APEX L " + str.tostring(longScore))
+    strategy.exit(id="Long Exit", from_entry="Long", stop=stopPx0, limit=tp2Px, comment_profit="TP2", comment_loss="SL")
+    if use_tp1
+        strategy.exit(id="Long TP1", from_entry="Long", qty_percent=tp1_pct, limit=tp1Px, comment_profit="TP1")
 if goShort and strategy.position_size >= 0
-    strategy.entry(id="Short", direction=strategy.short, qty=qtyFinal, comment="APEX S " + str.tostring(shortScore))
-    strategy.exit(id="Short Exit", from_entry="Short", stop=close + stopDist, limit=close - stopDist * payoff, comment_profit="TP", comment_loss="SL")
+    entryPx  := close
+    stopPx0  := close + stopDist
+    tp1Px    := close - stopDist * tp1_r
+    tp2Px    := close - stopDist * payoff
+    entryBar := bar_index
+    tp1Done  := false
+    strategy.entry(id="Short", direction=strategy.short, qty=qtyShort, comment="APEX S " + str.tostring(shortScore))
+    strategy.exit(id="Short Exit", from_entry="Short", stop=stopPx0, limit=tp2Px, comment_profit="TP2", comment_loss="SL")
+    if use_tp1
+        strategy.exit(id="Short TP1", from_entry="Short", qty_percent=tp1_pct, limit=tp1Px, comment_profit="TP1")
+
+// ═══════════ TRADE MANAGEMENT (hit & run) ═══════════
+if strategy.position_size > 0 and not na(entryPx)
+    if use_tp1 and not tp1Done and high >= tp1Px
+        tp1Done := true
+    runStopL = use_tp1 and tp1Done and be_after_tp1 ? entryPx : stopPx0
+    strategy.exit(id="Long Exit", from_entry="Long", stop=runStopL, limit=tp2Px, comment_profit="TP2", comment_loss=tp1Done and be_after_tp1 ? "BE" : "SL")
+    if time_stop_bars > 0 and not tp1Done and bar_index - entryBar >= time_stop_bars
+        strategy.close(id="Long", comment="TIME STOP")
+if strategy.position_size < 0 and not na(entryPx)
+    if use_tp1 and not tp1Done and low <= tp1Px
+        tp1Done := true
+    runStopS = use_tp1 and tp1Done and be_after_tp1 ? entryPx : stopPx0
+    strategy.exit(id="Short Exit", from_entry="Short", stop=runStopS, limit=tp2Px, comment_profit="TP2", comment_loss=tp1Done and be_after_tp1 ? "BE" : "SL")
+    if time_stop_bars > 0 and not tp1Done and bar_index - entryBar >= time_stop_bars
+        strategy.close(id="Short", comment="TIME STOP")
 
 // ═══════════ VISUALS ═══════════
 plot(series=aVwap, title="Anchored VWAP (D)", color=color.new(color.aqua, 25), linewidth=1)

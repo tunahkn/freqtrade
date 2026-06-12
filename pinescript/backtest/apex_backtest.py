@@ -253,51 +253,93 @@ def scores(f: dict, window: int):
     return long_s, short_s
 
 
-def run(f: dict, long_s, short_s, th: int, stop_mult: float, payoff: float) -> dict:
+def run(f: dict, long_s, short_s, th: int, stop_mult: float, payoff: float,
+        tp1_r: float = 0.0, tp1_pct: float = 0.5, be_after_tp1: bool = True,
+        time_stop: int = 0, conviction: bool = False) -> dict:
+    """Pine strategy execution model.
+
+    tp1_r > 0 enables a partial take-profit at tp1_r R for tp1_pct of the
+    position, optionally moving the stop to breakeven for the runner.
+    time_stop > 0 closes a trade that hasn't reached TP1 within N bars.
+    conviction scales risk by signal score: 1x at threshold, 1.5x at +2, 2x at +4.
+    """
     h, l, c, atr, n = f["h"], f["l"], f["c"], f["atr"], f["n"]
     sniper_l = (long_s >= th) & (long_s > short_s)
     sniper_s = (short_s >= th) & (short_s > long_s)
     equity = START_EQUITY
     peak = equity
     max_dd = 0.0
-    pos = 0          # +1 long, -1 short
-    qty = entry = stop = tp = 0.0
+    pos = 0
+    qty = entry = stop = tp = tp1 = 0.0
+    tp1_done = True
+    entry_i = 0
     trades, wins, gross_w, gross_l = 0, 0, 0.0, 0.0
 
-    def close_trade(px):
-        nonlocal equity, trades, wins, gross_w, gross_l, peak, max_dd
-        pnl = qty * (px - entry) * pos - FEE_PCT * qty * (entry + px)
+    def book(pnl):
+        nonlocal equity, peak, max_dd
         equity += pnl
+        peak = max(peak, equity)
+        max_dd = max(max_dd, (peak - equity) / peak)
+
+    def fill(px, part_qty):
+        return part_qty * (px - entry) * pos - FEE_PCT * part_qty * (entry + px)
+
+    def close_trade(px):
+        nonlocal trades, wins, gross_w, gross_l, qty
+        pnl = fill(px, qty)
+        book(pnl)
         trades += 1
         if pnl > 0:
             wins += 1
             gross_w += pnl
         else:
             gross_l -= pnl
-        peak = max(peak, equity)
-        max_dd = max(max_dd, (peak - equity) / peak)
+        qty = 0.0
 
     for i in range(1, n):
-        if pos != 0:  # manage open position: stop first, then target
-            if pos == 1 and l[i] <= stop:
-                close_trade(stop); pos = 0
-            elif pos == 1 and h[i] >= tp:
-                close_trade(tp); pos = 0
-            elif pos == -1 and h[i] >= stop:
-                close_trade(stop); pos = 0
-            elif pos == -1 and l[i] <= tp:
-                close_trade(tp); pos = 0
+        if pos != 0:
+            if tp1_r > 0 and not tp1_done:
+                hit_tp1 = h[i] >= tp1 if pos == 1 else l[i] <= tp1
+                hit_stop = l[i] <= stop if pos == 1 else h[i] >= stop
+                if hit_stop:  # conservative: full stop before partial
+                    close_trade(stop); pos = 0
+                elif hit_tp1:
+                    part = qty * tp1_pct
+                    book(fill(tp1, part))
+                    gross_w += max(fill(tp1, part), 0.0)
+                    qty -= part
+                    tp1_done = True
+                    if be_after_tp1:
+                        stop = entry
+                elif time_stop > 0 and i - entry_i >= time_stop:
+                    close_trade(c[i]); pos = 0
+            elif pos != 0:
+                if pos == 1 and l[i] <= stop:
+                    close_trade(stop); pos = 0
+                elif pos == 1 and h[i] >= tp:
+                    close_trade(tp); pos = 0
+                elif pos == -1 and h[i] >= stop:
+                    close_trade(stop); pos = 0
+                elif pos == -1 and l[i] <= tp:
+                    close_trade(tp); pos = 0
         if np.isnan(atr[i]) or atr[i] <= 0:
             continue
         want = 1 if sniper_l[i] else (-1 if sniper_s[i] else 0)
         if want != 0 and want != pos:
             if pos != 0:
                 close_trade(c[i])
+            score = long_s[i] if want == 1 else short_s[i]
+            mult = 1.0
+            if conviction:
+                mult = 2.0 if score >= th + 4 else 1.5 if score >= th + 2 else 1.0
             dist = atr[i] * stop_mult
-            qty = equity * (RISK_PCT / 100) / dist
+            qty = equity * (RISK_PCT / 100) * mult / dist
             entry = c[i]
             stop = entry - want * dist
             tp = entry + want * dist * payoff
+            tp1 = entry + want * dist * tp1_r
+            tp1_done = tp1_r <= 0
+            entry_i = i
             pos = want
     if pos != 0:
         close_trade(c[-1])
@@ -310,15 +352,31 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv")
     ap.add_argument("--grid", action="store_true")
+    ap.add_argument("--exec-grid", action="store_true", help="compare trade-management variants")
     ap.add_argument("--th", type=int, default=14)
-    ap.add_argument("--window", type=int, default=8)
-    ap.add_argument("--stop", type=float, default=1.5)
-    ap.add_argument("--payoff", type=float, default=1.5)
+    ap.add_argument("--window", type=int, default=5)
+    ap.add_argument("--stop", type=float, default=2.0)
+    ap.add_argument("--payoff", type=float, default=2.5)
     args = ap.parse_args()
 
     df = load(args.csv)
     print(f"{args.csv}: {len(df)} bars, {df['dt'].iloc[0]:%Y-%m-%d} → {df['dt'].iloc[-1]:%Y-%m-%d}", file=sys.stderr)
     f = compute_features(df)
+
+    if args.exec_grid:
+        ls, ss = scores(f, args.window)
+        variants = [
+            ("A baseline (full 2.5R exit)", dict()),
+            ("B TP1 50% @1R + BE runner", dict(tp1_r=1.0)),
+            ("C B + time-stop 20 bars", dict(tp1_r=1.0, time_stop=20)),
+            ("D B + conviction sizing", dict(tp1_r=1.0, conviction=True)),
+            ("E C + conviction sizing", dict(tp1_r=1.0, time_stop=20, conviction=True)),
+        ]
+        print("variant,trades,winrate,pf,ret_pct,maxdd_pct")
+        for name, kw in variants:
+            r = run(f, ls, ss, args.th, args.stop, args.payoff, **kw)
+            print(f"\"{name}\",{r['trades']},{r['winrate']:.1f},{r['pf']:.2f},{r['ret']:.2f},{r['maxdd']:.2f}")
+        return
 
     if args.grid:
         print("th,window,stop,payoff,trades,winrate,pf,ret_pct,maxdd_pct")
