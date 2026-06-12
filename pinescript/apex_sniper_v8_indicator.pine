@@ -1,0 +1,597 @@
+//@version=6
+indicator(title="APEX SNIPER v8 — Institutional Confluence Engine", shorttitle="APEX v8", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=500)
+
+// ═══════════ TYPES ═══════════
+enum Direction
+    long
+    short
+    neutral
+
+enum Regime
+    momentum
+    meanrev
+    unknown
+
+enum CvdMethod
+    bodyProp = "Body proportional"
+    upDown   = "Up/Down volume"
+
+type FVG
+    float top
+    float bot
+    int   barIdx
+    bool  bull
+    box   bx
+    line  ce
+
+type OB
+    float top
+    float bot
+    bool  bull
+    box   bx
+
+method mid(FVG f) =>
+    (f.top + f.bot) / 2.0
+
+// ═══════════ INPUTS ═══════════
+g01 = "01 · HTF Bias"
+htf_tf      = input.timeframe("240", "HTF Timeframe", group=g01)
+htf_ma_len  = input.int(50, "HTF MA Length", minval=1, group=g01)
+htf_ma_type = input.string("EMA", "HTF MA Type", options=["EMA", "SMA"], group=g01)
+
+g02 = "02 · Structure"
+swing_len         = input.int(5, "Swing Length", minval=2, group=g02)
+use_close_confirm = input.bool(true, "Close-Confirmed Breaks (BOS/CHoCH)", group=g02, tooltip="Wick-only break = liquidity grab (labeled separately). Close break = BOS/CHoCH.")
+
+g03 = "03 · Fair Value Gaps"
+fvg_atr_mult = input.float(0.5, "FVG Min Size (ATR mult)", minval=0.0, step=0.1, group=g03)
+fvg_max      = input.int(20, "Max Stored FVGs", minval=1, maxval=20, group=g03)
+show_ce      = input.bool(true, "Show CE Midline (50% = limit entry)", group=g03)
+
+g04 = "04 · Order Blocks"
+ob_atr_mult = input.float(0.8, "OB Impulse Size (ATR mult)", minval=0.0, step=0.1, group=g04)
+ob_max      = input.int(20, "Max Stored OBs", minval=1, maxval=20, group=g04)
+
+g05 = "05 · Liquidity"
+liq_lb             = input.int(20, "Liquidity Lookback", minval=5, group=g05)
+require_wick_reject = input.bool(true, "Require Wick Rejection on Sweep", group=g05)
+detect_inducement  = input.bool(true, "Detect Inducement (shallow pool trap)", group=g05)
+
+g06 = "06 · Kill Zones"
+tz_in       = input.string("America/New_York", "Timezone (DST auto)", group=g06)
+use_tz      = input.bool(true, "Use Custom Timezone", group=g06)
+asian_sess  = input.session("2000-0000", "Asian", group=g06)
+london_sess = input.session("0200-0500", "London", group=g06)
+nyam_sess   = input.session("0830-1100", "NY AM", group=g06)
+sb_sess     = input.session("1000-1100", "Silver Bullet", group=g06)
+
+g07 = "07 · Volume Profile"
+vp_lb   = input.int(200, "Profile Lookback", minval=20, maxval=480, group=g07)
+vp_bins = input.int(24, "Profile Bins", minval=4, maxval=50, group=g07)
+va_pct  = input.float(0.70, "Value Area %", minval=0.5, maxval=0.95, step=0.05, group=g07)
+
+g08 = "08 · CVD"
+cvd_method      = input.enum(CvdMethod.bodyProp, "CVD Method", group=g08)
+cvd_reset_daily = input.bool(true, "Reset CVD Daily", group=g08)
+
+g09 = "09 · Regime"
+adx_len      = input.int(14, "ADX Length", minval=1, group=g09)
+adx_trend_th = input.float(20.0, "ADX Trend Threshold", minval=1.0, group=g09)
+
+g10 = "10 · RVOL"
+rvol_len = input.int(20, "RVOL Length", minval=1, group=g10)
+rvol_min = input.float(1.3, "RVOL Minimum (displacement)", minval=0.1, step=0.1, group=g10)
+
+g11 = "11 · Crypto Sentiment (manual daily)"
+funding_rate      = input.float(0.0, "Funding Rate (%)", step=0.01, group=g11)
+oi_zscore         = input.float(0.0, "Open Interest Z-Score", step=0.1, group=g11)
+ls_ratio          = input.float(1.0, "Long/Short Ratio", minval=0.0, step=0.05, group=g11)
+liq_cluster_above = input.float(0.0, "Liq. Cluster Above (price, 0=off)", minval=0.0, group=g11)
+liq_cluster_below = input.float(0.0, "Liq. Cluster Below (price, 0=off)", minval=0.0, group=g11)
+
+g12 = "12 · GEX (manual daily)"
+gamma_flip = input.float(0.0, "Gamma Flip (0=unknown)", minval=0.0, group=g12)
+call_wall  = input.float(0.0, "Call Wall (0=off)", minval=0.0, group=g12)
+put_wall   = input.float(0.0, "Put Wall (0=off)", minval=0.0, group=g12)
+
+g13 = "13 · Risk Engine"
+account       = input.float(10000.0, "Account Size ($)", minval=1.0, group=g13)
+risk_pct      = input.float(1.0, "Risk per Trade (%)", minval=0.01, step=0.05, group=g13)
+atr_stop_mult = input.float(2.0, "ATR Stop Multiplier", minval=0.1, step=0.1, group=g13)
+kelly_frac    = input.float(0.25, "Kelly Fraction", minval=0.0, maxval=1.0, step=0.05, group=g13)
+leverage      = input.int(3, "Leverage", minval=1, maxval=125, group=g13)
+win_rate      = input.float(0.44, "Assumed Win Rate", minval=0.0, maxval=1.0, step=0.01, group=g13)
+payoff        = input.float(2.5, "Payoff Ratio (R)", minval=0.1, step=0.1, group=g13)
+
+g14 = "14 · Scoring & Display"
+// auto_th scales the sniper threshold with the chart TF (backtested: 14 on
+// intraday, 12 on 1D+). require_struct is the anti-reversal confirmation gate:
+// it lifted the +1R-before-stop probability on 3 of 4 tested datasets.
+auto_th        = input.bool(true, "Auto Threshold by Timeframe (intraday 14 · 1D+ 12)", group=g14)
+sniper_th      = input.int(14, "Sniper Threshold (manual, used when Auto off)", minval=1, maxval=20, group=g14)
+watch_th       = input.int(10, "Watch Threshold (manual, used when Auto off)", minval=1, maxval=20, group=g14)
+require_struct = input.bool(true, "Require Structure Break (anti-reversal gate)", group=g14, tooltip="Sniper fires only if a BOS/CHoCH in the signal direction happened within the confluence window. Raises follow-through (+1R before stop) at the cost of some signals.")
+conf_window    = input.int(5, "Confluence Window (bars)", minval=1, maxval=30, group=g14, tooltip="Event components (sweep, structure break, FVG tap, POC reclaim) stay valid for this many bars so sequential confluence can align into one score.")
+show_dashboard = input.bool(true, "Show Dashboard", group=g14)
+
+g15 = "15 · Visual Toggles"
+show_fvg           = input.bool(true, "FVG Boxes", group=g15)
+show_ob            = input.bool(true, "Order Block Boxes", group=g15)
+show_liq_levels    = input.bool(true, "BSL / SSL Lines", group=g15)
+show_prev_levels   = input.bool(true, "PDH / PDL / PWH / PWL Lines", group=g15)
+show_vp_lines      = input.bool(true, "Volume Profile Lines", group=g15)
+show_kz_bg         = input.bool(true, "Kill Zone Background", group=g15)
+show_grabs         = input.bool(true, "Liquidity Grab Markers", group=g15)
+show_watch         = input.bool(true, "Watch Signals", group=g15)
+show_struct_labels = input.bool(true, "BOS / CHoCH Labels", group=g15)
+show_trade_plan    = input.bool(true, "Trade Plan (Entry/SL/TP1/TP2) on Sniper", group=g15, tooltip="Draws the full hit-and-run plan at each sniper signal: entry, ATR stop, TP1 (1R partial) and TP2 (payoff R) with the signal score.")
+levels_show_last   = input.int(150, "Level Plots: Last N Bars Only", minval=10, maxval=500, group=g15, tooltip="Limits BSL/SSL and previous-period level plots to the most recent N bars to keep the chart clean.")
+
+// ═══════════ HELPERS ═══════════
+maFn(float src, simple int len, simple string t) =>
+    e = ta.ema(src, len)
+    s = ta.sma(src, len)
+    t == "EMA" ? e : s
+
+// ═══════════ HTF BIAS ═══════════
+htfValid    = timeframe.in_seconds(htf_tf) >= timeframe.in_seconds(timeframe.period)
+htfCloseRaw = request.security(syminfo.tickerid, htf_tf, close, lookahead=barmerge.lookahead_off)
+htfMaRaw    = request.security(syminfo.tickerid, htf_tf, maFn(close, htf_ma_len, htf_ma_type), lookahead=barmerge.lookahead_off)
+chartMa     = maFn(close, htf_ma_len, htf_ma_type)
+htfClose    = htfValid ? htfCloseRaw : close
+htfMa       = htfValid ? htfMaRaw : chartMa
+biasLong    = not na(htfClose) and not na(htfMa) and htfClose > htfMa
+biasShort   = not na(htfClose) and not na(htfMa) and htfClose < htfMa
+biasDir     = biasLong ? Direction.long : biasShort ? Direction.short : Direction.neutral
+
+// ═══════════ PREVIOUS PERIOD LEVELS (lookahead_on + [1] = non-repainting) ═══════════
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1], lookahead=barmerge.lookahead_on)
+
+// ═══════════ DISPLACEMENT / RVOL (no-volume safe) ═══════════
+volSma = ta.sma(volume, rvol_len)
+hasVol = not na(volume) and not na(volSma) and volSma > 0
+rvol   = hasVol ? volume / volSma : 1.0
+disp   = (not hasVol) or (rvol >= rvol_min)
+
+// ═══════════ SWINGS + BOS / CHoCH / GRABS ═══════════
+ph = ta.pivothigh(high, swing_len, swing_len)
+pl = ta.pivotlow(low, swing_len, swing_len)
+var float lastSH = na
+var float lastSL = na
+if not na(ph)
+    lastSH := ph
+if not na(pl)
+    lastSL := pl
+
+brokeHighClose = bar_index > 0 and not na(lastSH) and close > lastSH and close[1] <= lastSH
+brokeLowClose  = bar_index > 0 and not na(lastSL) and close < lastSL and close[1] >= lastSL
+brokeHighWick  = bar_index > 0 and not na(lastSH) and high > lastSH and high[1] <= lastSH
+brokeLowWick   = bar_index > 0 and not na(lastSL) and low < lastSL and low[1] >= lastSL
+brokeHigh      = use_close_confirm ? brokeHighClose : brokeHighWick
+brokeLow       = use_close_confirm ? brokeLowClose : brokeLowWick
+
+bosUp     = brokeHigh and biasDir == Direction.long
+bosDown   = brokeLow and biasDir == Direction.short
+chochUp   = brokeHigh and biasDir == Direction.short
+chochDown = brokeLow and biasDir == Direction.long
+grabHigh  = not na(lastSH) and high > lastSH and close <= lastSH
+grabLow   = not na(lastSL) and low < lastSL and close >= lastSL
+
+// ═══════════ FVG ENGINE ═══════════
+atr = ta.atr(14)
+var array<FVG> fvgs = array.new<FVG>()
+newBull = bar_index > 1 and not na(atr) and low > high[2] and (low - high[2]) >= atr * fvg_atr_mult and disp
+newBear = bar_index > 1 and not na(atr) and high < low[2] and (low[2] - high) >= atr * fvg_atr_mult and disp
+
+if newBull
+    bullMid = (low + high[2]) / 2.0
+    bxB = show_fvg ? box.new(left=bar_index - 2, top=low, right=bar_index, bottom=high[2], bgcolor=color.new(color.teal, 82), border_color=color.new(color.teal, 55)) : na
+    ceB = show_fvg and show_ce ? line.new(x1=bar_index - 2, y1=bullMid, x2=bar_index, y2=bullMid, color=color.new(color.teal, 30), style=line.style_dashed, width=1) : na
+    array.push(fvgs, FVG.new(top=low, bot=high[2], barIdx=bar_index, bull=true, bx=bxB, ce=ceB))
+if newBear
+    bearMid = (low[2] + high) / 2.0
+    bxS = show_fvg ? box.new(left=bar_index - 2, top=low[2], right=bar_index, bottom=high, bgcolor=color.new(color.maroon, 82), border_color=color.new(color.maroon, 55)) : na
+    ceS = show_fvg and show_ce ? line.new(x1=bar_index - 2, y1=bearMid, x2=bar_index, y2=bearMid, color=color.new(color.maroon, 30), style=line.style_dashed, width=1) : na
+    array.push(fvgs, FVG.new(top=low[2], bot=high, barIdx=bar_index, bull=false, bx=bxS, ce=ceS))
+
+bullFvgTap = false
+bearFvgTap = false
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        f = array.get(fvgs, i)
+        fMid = f.mid()
+        if f.bull and low <= fMid and close >= fMid
+            bullFvgTap := true
+        if (not f.bull) and high >= fMid and close <= fMid
+            bearFvgTap := true
+        mitigated = f.bull ? low <= f.bot : high >= f.top
+        if mitigated
+            if not na(f.bx)
+                box.delete(f.bx)
+            if not na(f.ce)
+                line.delete(f.ce)
+            array.remove(fvgs, i)
+        else
+            if not na(f.bx)
+                box.set_right(f.bx, bar_index)
+            if not na(f.ce)
+                line.set_x2(f.ce, bar_index)
+while array.size(fvgs) > fvg_max
+    oldF = array.shift(fvgs)
+    if not na(oldF.bx)
+        box.delete(oldF.bx)
+    if not na(oldF.ce)
+        line.delete(oldF.ce)
+
+// ═══════════ ORDER BLOCKS ═══════════
+var array<OB> obs = array.new<OB>()
+bullOB = bar_index > 0 and not na(atr) and close[1] < open[1] and close > high[1] and (high - low) > atr * ob_atr_mult and disp
+bearOB = bar_index > 0 and not na(atr) and close[1] > open[1] and close < low[1] and (high - low) > atr * ob_atr_mult and disp
+
+if bullOB
+    obxB = show_ob ? box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.green, 80), border_color=color.new(color.green, 50)) : na
+    array.push(obs, OB.new(top=high[1], bot=low[1], bull=true, bx=obxB))
+if bearOB
+    obxS = show_ob ? box.new(left=bar_index - 1, top=high[1], right=bar_index, bottom=low[1], bgcolor=color.new(color.red, 80), border_color=color.new(color.red, 50)) : na
+    array.push(obs, OB.new(top=high[1], bot=low[1], bull=false, bx=obxS))
+
+if array.size(obs) > 0
+    for i = array.size(obs) - 1 to 0
+        o = array.get(obs, i)
+        invalidated = o.bull ? close < o.bot : close > o.top
+        if invalidated
+            if not na(o.bx)
+                box.delete(o.bx)
+            array.remove(obs, i)
+        else
+            if not na(o.bx)
+                box.set_right(o.bx, bar_index)
+while array.size(obs) > ob_max
+    oldO = array.shift(obs)
+    if not na(oldO.bx)
+        box.delete(oldO.bx)
+
+// ═══════════ LIQUIDITY SWEEPS + INDUCEMENT ═══════════
+bslLvl   = ta.highest(high, liq_lb)[1]
+sslLvl   = ta.lowest(low, liq_lb)[1]
+bslSwept = not na(bslLvl) and high > bslLvl and (require_wick_reject ? close < bslLvl : true)
+sslSwept = not na(sslLvl) and low < sslLvl and (require_wick_reject ? close > sslLvl : true)
+inducementHi = detect_inducement and not na(lastSH) and not na(bslLvl) and lastSH < bslLvl and high > lastSH and high < bslLvl and close < lastSH
+inducementLo = detect_inducement and not na(lastSL) and not na(sslLvl) and lastSL > sslLvl and low < lastSL and low > sslLvl and close > lastSL
+
+// ═══════════ PREMIUM / DISCOUNT + OTE ═══════════
+rH = ta.highest(high, 50)
+rL = ta.lowest(low, 50)
+rM = (rH + rL) / 2.0
+inDiscount = not na(rM) and close < rM
+inPremium  = not na(rM) and close > rM
+oteLong  = not na(rL) and not na(rH) and close >= rL + (rH - rL) * 0.62 and close <= rL + (rH - rL) * 0.79
+oteShort = not na(rH) and not na(rL) and close <= rH - (rH - rL) * 0.62 and close >= rH - (rH - rL) * 0.79
+
+// ═══════════ KILL ZONES ═══════════
+tzUsed     = use_tz ? tz_in : syminfo.timezone
+inAsian    = not na(time(timeframe.period, asian_sess, tzUsed))
+inLondon   = not na(time(timeframe.period, london_sess, tzUsed))
+inNyAm     = not na(time(timeframe.period, nyam_sess, tzUsed))
+inSilver   = not na(time(timeframe.period, sb_sess, tzUsed))
+inKillZone = inLondon or inNyAm or inSilver
+
+// ═══════════ CVD + PIVOT DIVERGENCE ═══════════
+// Anchor adapts to the chart TF: a daily anchor on a 1D+ chart would reset
+// every bar (VWAP becomes noise), so 1D+ charts anchor weekly instead.
+anchorTf     = timeframe.in_seconds(timeframe.period) >= 86400 ? "W" : "D"
+anchorChange = timeframe.change(anchorTf)
+bodyR = math.abs(close - open) / math.max(high - low, syminfo.mintick)
+buyV  = volume * (close >= open ? bodyR : 1.0 - bodyR)
+sellV = volume * (close < open ? bodyR : 1.0 - bodyR)
+deltaBody = nz(buyV) - nz(sellV)
+deltaUd   = bar_index > 0 and not na(volume) ? (close > close[1] ? volume : close < close[1] ? -volume : 0.0) : 0.0
+delta     = cvd_method == CvdMethod.bodyProp ? deltaBody : deltaUd
+var float cvd = 0.0
+cvd := (cvd_reset_daily and anchorChange) ? delta : nz(cvd[1]) + delta
+
+var float pPL1 = na
+var float pPL2 = na
+var float cPL1 = na
+var float cPL2 = na
+if not na(pl)
+    pPL2 := pPL1
+    pPL1 := pl
+    cPL2 := cPL1
+    cPL1 := cvd[swing_len]
+var float pPH1 = na
+var float pPH2 = na
+var float cPH1 = na
+var float cPH2 = na
+if not na(ph)
+    pPH2 := pPH1
+    pPH1 := ph
+    cPH2 := cPH1
+    cPH1 := cvd[swing_len]
+bullCvdDiv = not na(pPL2) and not na(cPL2) and not na(pPL1) and not na(cPL1) and pPL1 < pPL2 and cPL1 > cPL2
+bearCvdDiv = not na(pPH2) and not na(cPH2) and not na(pPH1) and not na(cPH1) and pPH1 > pPH2 and cPH1 < cPH2
+
+// ═══════════ VOLUME PROFILE (POC / VAH / VAL) ═══════════
+vpHi = ta.highest(high, vp_lb)
+vpLo = ta.lowest(low, vp_lb)
+var float poc = na
+var float vah = na
+var float valLvl = na
+if bar_index >= vp_lb and not na(vpHi) and not na(vpLo) and vpHi > vpLo
+    binW = (vpHi - vpLo) / vp_bins
+    vols = array.new<float>(vp_bins, 0.0)
+    for k = 0 to vp_lb - 1
+        rawIdx = int(math.floor((hlc3[k] - vpLo) / math.max(binW, syminfo.mintick)))
+        idx = math.min(math.max(rawIdx, 0), vp_bins - 1)
+        array.set(vols, idx, array.get(vols, idx) + nz(volume[k]))
+    total = array.sum(vols)
+    if total > 0
+        pocIdx = 0
+        maxV = array.get(vols, 0)
+        for b = 1 to vp_bins - 1
+            if array.get(vols, b) > maxV
+                maxV := array.get(vols, b)
+                pocIdx := b
+        poc := vpLo + (pocIdx + 0.5) * binW
+        target = total * va_pct
+        cum = array.get(vols, pocIdx)
+        upIdx = pocIdx
+        dnIdx = pocIdx
+        while cum < target and (upIdx < vp_bins - 1 or dnIdx > 0)
+            upV = upIdx < vp_bins - 1 ? array.get(vols, upIdx + 1) : -1.0
+            dnV = dnIdx > 0 ? array.get(vols, dnIdx - 1) : -1.0
+            if upV >= dnV
+                upIdx += 1
+                cum += math.max(upV, 0.0)
+            else
+                dnIdx -= 1
+                cum += math.max(dnV, 0.0)
+        vah := vpLo + (upIdx + 1) * binW
+        valLvl := vpLo + dnIdx * binW
+
+pocReclaimUp = bar_index > 0 and not na(poc) and close > poc and close[1] <= poc
+pocReclaimDn = bar_index > 0 and not na(poc) and close < poc and close[1] >= poc
+
+var line pocLn = na
+var line vahLn = na
+var line valLn = na
+if barstate.islast and show_vp_lines and not na(poc)
+    line.delete(pocLn)
+    line.delete(vahLn)
+    line.delete(valLn)
+    pocLn := line.new(x1=bar_index - vp_lb, y1=poc, x2=bar_index, y2=poc, color=color.new(color.orange, 0), width=2)
+    vahLn := line.new(x1=bar_index - vp_lb, y1=vah, x2=bar_index, y2=vah, color=color.new(color.orange, 45), style=line.style_dashed, width=1)
+    valLn := line.new(x1=bar_index - vp_lb, y1=valLvl, x2=bar_index, y2=valLvl, color=color.new(color.orange, 45), style=line.style_dashed, width=1)
+
+// ═══════════ ANCHORED VWAP ═══════════
+aVwap = ta.vwap(hlc3, anchorChange)
+
+// ═══════════ ADAPTIVE REGIME ═══════════
+[diP, diM, adxV] = ta.dmi(adx_len, adx_len)
+gexKnown = gamma_flip != 0.0
+regime = gexKnown ? (close > gamma_flip ? Regime.meanrev : Regime.momentum) : (not na(adxV) and adxV > adx_trend_th ? Regime.momentum : Regime.meanrev)
+
+// ═══════════ RISK ENGINE ═══════════
+kellyRaw    = win_rate - ((1.0 - win_rate) / payoff)
+kellyUsed   = math.max(0.0, kellyRaw * kelly_frac)
+riskCash    = account * (risk_pct / 100.0)
+stopDist    = nz(atr) * atr_stop_mult
+sizeUnits   = riskCash / math.max(stopDist, syminfo.mintick)
+notional    = sizeUnits * close
+margin      = notional / math.max(leverage, 1)
+liqDistPct  = 100.0 / math.max(leverage, 1)
+stopDistPct = (stopDist / math.max(close, syminfo.mintick)) * 100.0
+safeLev     = stopDistPct < liqDistPct * 0.5
+
+// ═══════════ SCORING (20 pts, regime-weighted) ═══════════
+// Event components are single-bar triggers (sweep, break, tap). They stay valid
+// for conf_window bars so a sweep followed by a CHoCH a few bars later can
+// still stack into one confluence score.
+bsSslSweep  = ta.barssince(sslSwept)
+bsBslSweep  = ta.barssince(bslSwept)
+bsStructL   = ta.barssince(chochUp or bosUp)
+bsStructS   = ta.barssince(chochDown or bosDown)
+bsFvgL      = ta.barssince(bullFvgTap)
+bsFvgS      = ta.barssince(bearFvgTap)
+bsPocUp     = ta.barssince(pocReclaimUp)
+bsPocDn     = ta.barssince(pocReclaimDn)
+recSslSweep = not na(bsSslSweep) and bsSslSweep <= conf_window
+recBslSweep = not na(bsBslSweep) and bsBslSweep <= conf_window
+recStructL  = not na(bsStructL) and bsStructL <= conf_window
+recStructS  = not na(bsStructS) and bsStructS <= conf_window
+recFvgL     = not na(bsFvgL) and bsFvgL <= conf_window
+recFvgS     = not na(bsFvgS) and bsFvgS <= conf_window
+recPocUp    = not na(bsPocUp) and bsPocUp <= conf_window
+recPocDn    = not na(bsPocDn) and bsPocDn <= conf_window
+
+// Kill zones only resolve on intraday charts up to 1h; on higher TFs the
+// component is neutralized so it cannot systematically block signals.
+kzApplicable = timeframe.in_seconds(timeframe.period) <= 3600
+
+bosPtsVal = regime == Regime.momentum ? 4 : regime == Regime.meanrev ? 2 : 3
+pdPtsVal  = regime == Regime.meanrev ? 3 : regime == Regime.momentum ? 1 : 2
+
+vwapLongOk  = not na(aVwap) and close > aVwap
+vwapShortOk = not na(aVwap) and close < aVwap
+sentLongOk  = funding_rate < -0.03 or ls_ratio < 0.7 or oi_zscore < -2.0
+sentShortOk = funding_rate > 0.03 or ls_ratio > 1.3 or oi_zscore > 2.0
+
+ptsBiasL   = biasDir == Direction.long ? 3 : 0
+ptsBiasS   = biasDir == Direction.short ? 3 : 0
+ptsVwapL   = vwapLongOk ? 2 : 0
+ptsVwapS   = vwapShortOk ? 2 : 0
+ptsSweepL  = recSslSweep ? 3 : 0
+ptsSweepS  = recBslSweep ? 3 : 0
+ptsStructL = recStructL ? bosPtsVal : 0
+ptsStructS = recStructS ? bosPtsVal : 0
+ptsFvgL    = recFvgL ? 2 : 0
+ptsFvgS    = recFvgS ? 2 : 0
+ptsPdL     = (inDiscount or oteLong) ? pdPtsVal : 0
+ptsPdS     = (inPremium or oteShort) ? pdPtsVal : 0
+ptsCvdL    = bullCvdDiv ? 1 : 0
+ptsCvdS    = bearCvdDiv ? 1 : 0
+ptsPocL    = recPocUp ? 1 : 0
+ptsPocS    = recPocDn ? 1 : 0
+ptsKzL     = (inKillZone or not kzApplicable) ? 2 : 0
+ptsKzS     = (inKillZone or not kzApplicable) ? 2 : 0
+ptsSentL   = sentLongOk ? 1 : 0
+ptsSentS   = sentShortOk ? 1 : 0
+
+longScore  = ptsBiasL + ptsVwapL + ptsSweepL + ptsStructL + ptsFvgL + ptsPdL + ptsCvdL + ptsPocL + ptsKzL + ptsSentL
+shortScore = ptsBiasS + ptsVwapS + ptsSweepS + ptsStructS + ptsFvgS + ptsPdS + ptsCvdS + ptsPocS + ptsKzS + ptsSentS
+
+// Component activity over the last 500 bars — dashboard diagnostics showing
+// which filter starves the score (frequency audit).
+f_act(bool b) =>
+    ta.sma(b ? 1.0 : 0.0, 500) * 100.0
+actBiasL  = f_act(biasDir == Direction.long)
+actBiasS  = f_act(biasDir == Direction.short)
+actVwapL  = f_act(vwapLongOk)
+actVwapS  = f_act(vwapShortOk)
+actSweepL = f_act(recSslSweep)
+actSweepS = f_act(recBslSweep)
+actStrL   = f_act(recStructL)
+actStrS   = f_act(recStructS)
+actFvgL   = f_act(recFvgL)
+actFvgS   = f_act(recFvgS)
+actPdL    = f_act(inDiscount or oteLong)
+actPdS    = f_act(inPremium or oteShort)
+actCvdL   = f_act(bullCvdDiv)
+actCvdS   = f_act(bearCvdDiv)
+actPocL   = f_act(recPocUp)
+actPocS   = f_act(recPocDn)
+actKz     = f_act(inKillZone or not kzApplicable)
+actSentL  = f_act(sentLongOk)
+actSentS  = f_act(sentShortOk)
+
+// Effective thresholds: backtests (ETH/BTC 4h+1D, 2017-2020) put the sweet
+// spot at 14 intraday and 12 on 1D+. auto_th applies that scaling.
+thEff    = auto_th ? (timeframe.in_seconds(timeframe.period) >= 86400 ? 12 : 14) : sniper_th
+watchEff = auto_th ? math.max(thEff - 4, 1) : watch_th
+// Anti-reversal gate: sniper requires a same-direction structure break within
+// the confluence window (watch signals stay ungated as early warnings).
+structOkL = (not require_struct) or recStructL
+structOkS = (not require_struct) or recStructS
+sniperLong  = barstate.isconfirmed and longScore >= thEff and longScore > shortScore and structOkL
+sniperShort = barstate.isconfirmed and shortScore >= thEff and shortScore > longScore and structOkS
+watchLong   = barstate.isconfirmed and longScore >= watchEff and longScore < thEff
+watchShort  = barstate.isconfirmed and shortScore >= watchEff and shortScore < thEff
+
+// Edge triggers: fire once when a signal state is first entered, not on every bar it persists
+sniperLongNew  = sniperLong and (bar_index == 0 or not sniperLong[1])
+sniperShortNew = sniperShort and (bar_index == 0 or not sniperShort[1])
+watchLongNew   = watchLong and (bar_index == 0 or not watchLong[1])
+watchShortNew  = watchShort and (bar_index == 0 or not watchShort[1])
+
+// ═══════════ VISUALS ═══════════
+plot(series=aVwap, title="Anchored VWAP (D)", color=color.new(color.aqua, 25), linewidth=1)
+plot(series=htfMa, title="HTF MA", color=biasLong ? color.new(color.lime, 50) : biasShort ? color.new(color.red, 50) : color.new(color.gray, 50), linewidth=2)
+plot(series=show_liq_levels ? bslLvl : na, title="BSL", color=color.new(color.red, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_liq_levels ? sslLvl : na, title="SSL", color=color.new(color.lime, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pdh : na, title="PDH", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pdl : na, title="PDL", color=color.new(color.fuchsia, 40), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pwh : na, title="PWH", color=color.new(color.purple, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=show_prev_levels ? pwl : na, title="PWL", color=color.new(color.purple, 55), style=plot.style_linebr, linewidth=1, show_last=levels_show_last)
+plot(series=gamma_flip > 0 ? gamma_flip : na, title="Gamma Flip", color=color.new(color.yellow, 30), style=plot.style_linebr, linewidth=2)
+plot(series=call_wall > 0 ? call_wall : na, title="Call Wall", color=color.new(color.red, 35), style=plot.style_cross, linewidth=1)
+plot(series=put_wall > 0 ? put_wall : na, title="Put Wall", color=color.new(color.lime, 35), style=plot.style_cross, linewidth=1)
+plot(series=liq_cluster_above > 0 ? liq_cluster_above : na, title="Liq Cluster Above", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
+plot(series=liq_cluster_below > 0 ? liq_cluster_below : na, title="Liq Cluster Below", color=color.new(color.orange, 35), style=plot.style_circles, linewidth=1)
+
+plotshape(series=sniperLongNew, title="Sniper Long", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="SNIPE", textcolor=color.lime)
+plotshape(series=sniperShortNew, title="Sniper Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="SNIPE", textcolor=color.red)
+plotshape(series=show_watch and watchLongNew, title="Watch Long", style=shape.circle, location=location.belowbar, color=color.new(color.lime, 45), size=size.tiny)
+plotshape(series=show_watch and watchShortNew, title="Watch Short", style=shape.circle, location=location.abovebar, color=color.new(color.red, 45), size=size.tiny)
+plotshape(series=show_grabs and grabHigh and barstate.isconfirmed, title="Liquidity Grab High", style=shape.xcross, location=location.abovebar, color=color.new(color.orange, 20), size=size.tiny)
+plotshape(series=show_grabs and grabLow and barstate.isconfirmed, title="Liquidity Grab Low", style=shape.xcross, location=location.belowbar, color=color.new(color.orange, 20), size=size.tiny)
+plotchar(series=show_grabs and inducementHi and barstate.isconfirmed, title="Inducement High", char="i", location=location.abovebar, color=color.new(color.yellow, 20), size=size.tiny)
+plotchar(series=show_grabs and inducementLo and barstate.isconfirmed, title="Inducement Low", char="i", location=location.belowbar, color=color.new(color.yellow, 20), size=size.tiny)
+plotshape(series=show_struct_labels and bosUp and barstate.isconfirmed, title="BOS Up", style=shape.diamond, location=location.belowbar, color=color.new(color.teal, 25), size=size.tiny, text="BOS", textcolor=color.new(color.teal, 10))
+plotshape(series=show_struct_labels and bosDown and barstate.isconfirmed, title="BOS Down", style=shape.diamond, location=location.abovebar, color=color.new(color.maroon, 25), size=size.tiny, text="BOS", textcolor=color.new(color.maroon, 10))
+plotshape(series=show_struct_labels and chochUp and barstate.isconfirmed, title="CHoCH Up", style=shape.diamond, location=location.belowbar, color=color.new(color.yellow, 25), size=size.tiny, text="CHoCH", textcolor=color.new(color.yellow, 10))
+plotshape(series=show_struct_labels and chochDown and barstate.isconfirmed, title="CHoCH Down", style=shape.diamond, location=location.abovebar, color=color.new(color.yellow, 25), size=size.tiny, text="CHoCH", textcolor=color.new(color.yellow, 10))
+
+bgcolor(show_kz_bg ? (inSilver ? color.new(color.purple, 92) : inNyAm ? color.new(color.blue, 94) : inLondon ? color.new(color.teal, 94) : inAsian ? color.new(color.gray, 96) : na) : na, title="Kill Zone Tint")
+
+// ═══════════ TRADE PLAN (hit & run levels on sniper signals) ═══════════
+var line  planEntry = na
+var line  planStop  = na
+var line  planTp1   = na
+var line  planTp2   = na
+var label planLbl   = na
+if show_trade_plan and (sniperLongNew or sniperShortNew) and not na(atr) and atr > 0
+    dirMult = sniperLongNew ? 1.0 : -1.0
+    pe  = close
+    psl = pe - dirMult * stopDist
+    pt1 = pe + dirMult * stopDist
+    pt2 = pe + dirMult * stopDist * payoff
+    line.delete(planEntry)
+    line.delete(planStop)
+    line.delete(planTp1)
+    line.delete(planTp2)
+    label.delete(planLbl)
+    x2 = bar_index + 20
+    planEntry := line.new(x1=bar_index, y1=pe, x2=x2, y2=pe, color=color.new(color.gray, 20), style=line.style_solid, width=1)
+    planStop  := line.new(x1=bar_index, y1=psl, x2=x2, y2=psl, color=color.new(color.red, 10), style=line.style_solid, width=2)
+    planTp1   := line.new(x1=bar_index, y1=pt1, x2=x2, y2=pt1, color=color.new(color.lime, 40), style=line.style_dashed, width=1)
+    planTp2   := line.new(x1=bar_index, y1=pt2, x2=x2, y2=pt2, color=color.new(color.lime, 0), style=line.style_solid, width=2)
+    scoreTxt = sniperLongNew ? str.tostring(longScore) : str.tostring(shortScore)
+    sideTxt  = sniperLongNew ? "LONG" : "SHORT"
+    planLbl  := label.new(x=x2, y=pt2, text=sideTxt + " " + scoreTxt + "/20\nSL " + str.tostring(psl, format.mintick) + "\nTP1 " + str.tostring(pt1, format.mintick) + " (1R, bank 50%)\nTP2 " + str.tostring(pt2, format.mintick) + " (" + str.tostring(payoff, "#.#") + "R)", style=sniperLongNew ? label.style_label_lower_left : label.style_label_upper_left, color=color.new(color.black, 30), textcolor=sniperLongNew ? color.lime : color.red, size=size.small)
+
+// ═══════════ DASHBOARD ═══════════
+var table dash = table.new(position=position.top_right, columns=4, rows=16, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 70))
+
+// freqTxt = how often the component was active over the last 500 bars (L/S)
+f_fmt(float a, float b) =>
+    str.tostring(nz(a), "#") + "%/" + str.tostring(nz(b), "#") + "%"
+
+f_row(int r, string nameTxt, string statusTxt, string freqTxt, int lp, int sp) =>
+    table.cell(dash, 0, r, nameTxt, text_color=color.new(color.white, 15), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, r, statusTxt + "  ·  " + freqTxt, text_color=color.new(color.silver, 10), text_size=size.tiny)
+    table.cell(dash, 2, r, str.tostring(lp), text_color=lp > 0 ? color.lime : color.new(color.gray, 40), text_size=size.tiny)
+    table.cell(dash, 3, r, str.tostring(sp), text_color=sp > 0 ? color.red : color.new(color.gray, 40), text_size=size.tiny)
+
+f_kv(int r, string k1, string v1, color c1, string k2, string v2, color c2) =>
+    table.cell(dash, 0, r, k1, text_color=color.new(color.white, 25), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, r, v1, text_color=c1, text_size=size.tiny)
+    table.cell(dash, 2, r, k2, text_color=color.new(color.white, 25), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 3, r, v2, text_color=c2, text_size=size.tiny)
+
+if show_dashboard and barstate.islast
+    table.cell(dash, 0, 0, "COMPONENT", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 45), text_halign=text.align_left)
+    table.cell(dash, 1, 0, "STATUS", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    table.cell(dash, 2, 0, "L", text_color=color.lime, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    table.cell(dash, 3, 0, "S", text_color=color.red, text_size=size.tiny, bgcolor=color.new(color.blue, 45))
+    f_row(1, "HTF Bias", biasDir == Direction.long ? "LONG" : biasDir == Direction.short ? "SHORT" : "—", f_fmt(actBiasL, actBiasS), ptsBiasL, ptsBiasS)
+    f_row(2, "Anch. VWAP", vwapLongOk ? "ABOVE" : vwapShortOk ? "BELOW" : "—", f_fmt(actVwapL, actVwapS), ptsVwapL, ptsVwapS)
+    f_row(3, "Liq. Sweep", recSslSweep ? "SSL ✓" : recBslSweep ? "BSL ✓" : "—", f_fmt(actSweepL, actSweepS), ptsSweepL, ptsSweepS)
+    f_row(4, "Structure", recStructL ? "BULL BRK" : recStructS ? "BEAR BRK" : "—", f_fmt(actStrL, actStrS), ptsStructL, ptsStructS)
+    f_row(5, "FVG @ CE", recFvgL ? "BULL TAP" : recFvgS ? "BEAR TAP" : "—", f_fmt(actFvgL, actFvgS), ptsFvgL, ptsFvgS)
+    f_row(6, "Prem/Disc", inDiscount ? "DISCOUNT" : inPremium ? "PREMIUM" : "EQ", f_fmt(actPdL, actPdS), ptsPdL, ptsPdS)
+    f_row(7, "CVD Div", bullCvdDiv ? "BULL" : bearCvdDiv ? "BEAR" : "—", f_fmt(actCvdL, actCvdS), ptsCvdL, ptsCvdS)
+    f_row(8, "POC", recPocUp ? "RECLAIM ↑" : recPocDn ? "LOST ↓" : "—", f_fmt(actPocL, actPocS), ptsPocL, ptsPocS)
+    f_row(9, "Kill Zone", not kzApplicable ? "N/A (TF)" : inSilver ? "SILVER" : inNyAm ? "NY AM" : inLondon ? "LONDON" : inAsian ? "ASIA" : "—", f_fmt(actKz, actKz), ptsKzL, ptsKzS)
+    f_row(10, "Sentiment", sentLongOk ? "CROWD SHORT" : sentShortOk ? "CROWD LONG" : "NEUTRAL", f_fmt(actSentL, actSentS), ptsSentL, ptsSentS)
+    sigTxt = sniperLong ? "SNIPER LONG" : sniperShort ? "SNIPER SHORT" : watchLong ? "WATCH LONG" : watchShort ? "WATCH SHORT" : "—"
+    sigClr = sniperLong or watchLong ? color.lime : sniperShort or watchShort ? color.red : color.gray
+    regTxt = regime == Regime.momentum ? "MOMENTUM" : regime == Regime.meanrev ? "MEAN-REV" : "—"
+    f_kv(11, "Long", str.tostring(longScore) + "/20 (th " + str.tostring(thEff) + ")", longScore >= thEff ? color.lime : color.silver, "Short", str.tostring(shortScore) + "/20", shortScore >= thEff ? color.red : color.silver)
+    f_kv(12, "Signal", sigTxt, sigClr, "Regime", regTxt, color.aqua)
+    f_kv(13, "Funding", str.tostring(funding_rate, "#.####") + "%", funding_rate < 0 ? color.lime : funding_rate > 0 ? color.red : color.gray, "RVOL", hasVol ? str.tostring(rvol, "#.##") : "N/A", rvol >= rvol_min ? color.lime : color.gray)
+    f_kv(14, "Size", str.tostring(sizeUnits, "#.####"), color.silver, "Margin", "$" + str.tostring(margin, "#.##"), color.silver)
+    f_kv(15, "SAFE-LEV", safeLev ? "YES" : "NO", safeLev ? color.lime : color.red, "Kelly", str.tostring(kellyUsed * 100.0, "#.##") + "%", kellyUsed > 0 ? color.lime : color.red)
+
+// ═══════════ ALERTS (confirmed bars only) ═══════════
+silverEntered = inSilver and (bar_index == 0 or not inSilver[1]) and barstate.isconfirmed
+alertcondition(sniperLongNew, title="APEX SNIPER LONG", message="APEX SNIPER LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sniperShortNew, title="APEX SNIPER SHORT", message="APEX SNIPER SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchLongNew, title="APEX WATCH LONG", message="APEX WATCH LONG | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(watchShortNew, title="APEX WATCH SHORT", message="APEX WATCH SHORT | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bslSwept and barstate.isconfirmed, title="BSL Sweep", message="BSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sslSwept and barstate.isconfirmed, title="SSL Sweep", message="SSL SWEEP | {{ticker}} {{interval}} @ {{close}}")
+alertcondition((grabHigh or grabLow) and barstate.isconfirmed, title="Liquidity Grab", message="LIQUIDITY GRAB | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(silverEntered, title="Silver Bullet Window", message="SILVER BULLET WINDOW OPEN | {{ticker}} {{interval}} @ {{close}}")
