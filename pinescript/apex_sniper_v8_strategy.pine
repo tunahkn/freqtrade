@@ -125,6 +125,9 @@ be_after_tp1     = input.bool(true, "Move Stop to Breakeven After TP1", group=g1
 time_stop_bars   = input.int(20, "Time Stop (bars, 0 = off)", minval=0, maxval=200, group=g15, tooltip="Closes a trade that has not reached TP1 within N bars — frees margin from dead trades.")
 conviction_sizing = input.bool(false, "Conviction Sizing (1.5x @ th+2, 2x @ th+4)", group=g15, tooltip="Scales risk with signal score. Backtests on ETH/BTC 4h 2017-2020 showed no edge from this — enable only with your own evidence.")
 
+g17 = "17 · Diagnostics"
+enable_trade_log = input.bool(true, "Trade Autopsy Log (Pine Logs panel, CSV)", group=g17, tooltip="Writes one CSV line per closed fill to the Pine Logs panel: datetime, direction, entry score, component points, regime, exit reason, R result, MFE/MAE in R, bars held. Open Pine Logs and copy the lines to export.")
+
 g16 = "16 · Visual Toggles"
 show_fvg           = input.bool(true, "FVG Boxes", group=g16)
 show_ob            = input.bool(true, "Order Block Boxes", group=g16)
@@ -515,6 +518,18 @@ var float tp1Px    = na
 var float tp2Px    = na
 var int   entryBar = na
 var bool  tp1Done  = false
+// Autopsy state (diagnostics only — no effect on orders)
+var int    entryDir    = 0
+var int    entryScore  = 0
+var string entryComps  = ""
+var string entryRegime = ""
+var float  exMax       = na
+var float  exMin       = na
+var int    loggedTrades = 0
+
+// Component points fingerprint at entry, e.g. "B3V2S0T4F0P1C0O0K2E0"
+f_comps(int b, int v, int sw, int st, int fv, int pd, int cv, int po, int kz, int se) =>
+    "B" + str.tostring(b) + "V" + str.tostring(v) + "S" + str.tostring(sw) + "T" + str.tostring(st) + "F" + str.tostring(fv) + "P" + str.tostring(pd) + "C" + str.tostring(cv) + "O" + str.tostring(po) + "K" + str.tostring(kz) + "E" + str.tostring(se)
 
 if goLong and strategy.position_size <= 0
     entryPx  := close
@@ -523,6 +538,12 @@ if goLong and strategy.position_size <= 0
     tp2Px    := close + stopDist * payoff
     entryBar := bar_index
     tp1Done  := false
+    entryDir    := 1
+    entryScore  := longScore
+    entryComps  := f_comps(ptsBiasL, ptsVwapL, ptsSweepL, ptsStructL, ptsFvgL, ptsPdL, ptsCvdL, ptsPocL, ptsKzL, ptsSentL)
+    entryRegime := regime == Regime.momentum ? "MOM" : "MR"
+    exMax := high
+    exMin := low
     strategy.entry(id="Long", direction=strategy.long, qty=qtyLong, comment="APEX L " + str.tostring(longScore))
     strategy.exit(id="Long Exit", from_entry="Long", stop=stopPx0, limit=tp2Px, comment_profit="TP2", comment_loss="SL")
     if use_tp1
@@ -534,10 +555,40 @@ if goShort and strategy.position_size >= 0
     tp2Px    := close - stopDist * payoff
     entryBar := bar_index
     tp1Done  := false
+    entryDir    := -1
+    entryScore  := shortScore
+    entryComps  := f_comps(ptsBiasS, ptsVwapS, ptsSweepS, ptsStructS, ptsFvgS, ptsPdS, ptsCvdS, ptsPocS, ptsKzS, ptsSentS)
+    entryRegime := regime == Regime.momentum ? "MOM" : "MR"
+    exMax := high
+    exMin := low
     strategy.entry(id="Short", direction=strategy.short, qty=qtyShort, comment="APEX S " + str.tostring(shortScore))
     strategy.exit(id="Short Exit", from_entry="Short", stop=stopPx0, limit=tp2Px, comment_profit="TP2", comment_loss="SL")
     if use_tp1
         strategy.exit(id="Short TP1", from_entry="Short", qty_percent=tp1_pct, limit=tp1Px, comment_profit="TP1")
+
+// ═══════════ TRADE AUTOPSY LOG (diagnostics only) ═══════════
+// One CSV row per closed fill in the Pine Logs panel. Partial TP1 fills are
+// separate rows. R is per-fill: (exit-entry)/initial stop distance.
+if strategy.position_size != 0
+    exMax := math.max(nz(exMax, high), high)
+    exMin := math.min(nz(exMin, low), low)
+
+if enable_trade_log and barstate.isfirst
+    log.info("datetime,dir,score,components,regime,exit,r,mfe_r,mae_r,bars")
+if enable_trade_log and barstate.isconfirmed
+    while loggedTrades < strategy.closedtrades
+        eP   = strategy.closedtrades.entry_price(loggedTrades)
+        xP   = strategy.closedtrades.exit_price(loggedTrades)
+        cmtR = strategy.closedtrades.exit_comment(loggedTrades)
+        cmt  = na(cmtR) or cmtR == "" ? "REVERSE" : cmtR
+        dist = math.abs(nz(entryPx) - nz(stopPx0))
+        dSgn = entryDir >= 0 ? 1.0 : -1.0
+        rR   = dist > 0 ? (xP - eP) * dSgn / dist : 0.0
+        mfeR = dist > 0 ? (entryDir >= 0 ? nz(exMax) - eP : eP - nz(exMin)) / dist : 0.0
+        maeR = dist > 0 ? (entryDir >= 0 ? eP - nz(exMin) : nz(exMax) - eP) / dist : 0.0
+        held = bar_index - nz(entryBar)
+        log.info(str.format_time(strategy.closedtrades.exit_time(loggedTrades), "yyyy-MM-dd HH:mm") + "," + (entryDir >= 0 ? "L" : "S") + "," + str.tostring(entryScore) + "," + entryComps + "," + entryRegime + "," + cmt + "," + str.tostring(rR, "#.##") + "," + str.tostring(mfeR, "#.##") + "," + str.tostring(maeR, "#.##") + "," + str.tostring(held))
+        loggedTrades += 1
 
 // ═══════════ TRADE MANAGEMENT (hit & run) ═══════════
 if strategy.position_size > 0 and not na(entryPx)
