@@ -112,6 +112,13 @@ GRP_SCORE = "═══ SCORING ═══"
 sniper_threshold = input.int(14, "Sniper Threshold (of 20)", minval = 1, maxval = 20, group = GRP_SCORE)
 watch_threshold  = input.int(10, "Watch Threshold (of 20)", minval = 1, maxval = 20, group = GRP_SCORE)
 
+GRP_SIG = "═══ SIGNAL ENGINE (BUY/SELL) ═══"
+st_factor          = input.float(3.0, "Trend Band Factor", step = 0.1, minval = 0.5, group = GRP_SIG)
+st_atr_len         = input.int(10, "Trend Band ATR Length", minval = 1, group = GRP_SIG)
+recent_window      = input.int(12, "Condition Memory (bars)", minval = 1, group = GRP_SIG)
+min_conditions     = input.int(4, "Min Conditions for Signal (of 5)", minval = 1, maxval = 5, group = GRP_SIG)
+show_signal_labels = input.bool(true, "Show Big BUY/SELL Labels", group = GRP_SIG)
+
 // ═════════════════════════════════════════ HELPERS ═════════════════════════════════════════
 inSession(string sess) =>
     not na(time(timeframe.period, sess, "America/New_York"))
@@ -414,6 +421,45 @@ bool watch_short  = short_score >= watch_threshold and short_score < sniper_thre
 
 Direction current_dir = sniper_long ? Direction.long : sniper_short ? Direction.short : Direction.neutral
 
+// ═════════════════════════════════════════ SIGNAL ENGINE (BUY / SELL) ═════════════════════════════════════════
+// 5-condition confluence checklist per side. A signal fires when at least
+// `min_conditions` are true AND the trend band agrees, and it does not
+// repeat until the opposite side fires (AlphaTrend-style state flip).
+[st_line, st_dir] = ta.supertrend(st_factor, st_atr_len)
+bool trend_bull = st_dir < 0
+bool trend_bear = st_dir > 0
+
+bool struct_bull_recent = ta.barssince(mss_bull or bos_bull) <= recent_window
+bool struct_bear_recent = ta.barssince(mss_bear or bos_bear) <= recent_window
+bool sweep_bull_recent  = ta.barssince(ssl_swept) <= recent_window
+bool sweep_bear_recent  = ta.barssince(bsl_swept) <= recent_window
+
+// Long checklist: 1) HTF bias  2) trend band  3) structure shift  4) liquidity/zone tap  5) value location
+bool l_c1 = bullish_bias
+bool l_c2 = trend_bull
+bool l_c3 = struct_bull_recent
+bool l_c4 = sweep_bull_recent or bull_fvg_tapped or bull_ob_tapped
+bool l_c5 = in_discount or ote_long or cvd_bull_div or near_poc_below
+int long_conds = (l_c1 ? 1 : 0) + (l_c2 ? 1 : 0) + (l_c3 ? 1 : 0) + (l_c4 ? 1 : 0) + (l_c5 ? 1 : 0)
+
+bool s_c1 = bearish_bias
+bool s_c2 = trend_bear
+bool s_c3 = struct_bear_recent
+bool s_c4 = sweep_bear_recent or bear_fvg_tapped or bear_ob_tapped
+bool s_c5 = in_premium or ote_short or cvd_bear_div or near_poc_above
+int short_conds = (s_c1 ? 1 : 0) + (s_c2 ? 1 : 0) + (s_c3 ? 1 : 0) + (s_c4 ? 1 : 0) + (s_c5 ? 1 : 0)
+
+bool long_ready  = long_conds >= min_conditions and trend_bull
+bool short_ready = short_conds >= min_conditions and trend_bear
+
+var int sig_state = 0
+bool buy_signal  = long_ready and sig_state != 1 and (not short_ready or long_conds > short_conds)
+bool sell_signal = short_ready and sig_state != -1 and not buy_signal
+if buy_signal
+    sig_state := 1
+if sell_signal
+    sig_state := -1
+
 // ═════════════════════════════════════════ POSITION SIZING ═════════════════════════════════════════
 float risk_dollars      = account_size * (risk_pct / 100)
 float atr_stop_distance = atrVal * atr_stop_mult
@@ -439,6 +485,12 @@ float stop_distance_pct       = (atr_stop_distance / close) * 100
 bool  safe_leverage_ok        = stop_distance_pct < liquidation_distance_pct * 0.5
 
 // ═════════════════════════════════════════ VISUALS ═════════════════════════════════════════
+// AlphaTrend-style trend ribbon: thick colored line + filled band
+color trend_col = trend_bull ? color.new(#089981, 0) : color.new(#f23645, 0)
+p_st  = plot(st_line, "Trend Band", color = trend_col, linewidth = 3)
+p_st2 = plot(st_line[2], "Trend Band Offset", color = color.new(color.gray, 100))
+fill(p_st, p_st2, color = trend_bull ? color.new(#089981, 65) : color.new(#f23645, 65), title = "Trend Ribbon")
+
 plot(session_vwap, "Session VWAP", color = color.new(color.orange, 0), linewidth = 1)
 plot(anchored_vwap, "Weekly Anchored VWAP", color = color.new(color.aqua, 0), linewidth = 1)
 plot(range_mid, "Equilibrium (50-bar)", color = color.new(color.gray, 60), linewidth = 1)
@@ -456,6 +508,13 @@ plotshape(sniper_long, "Sniper Long", shape.triangleup, location.belowbar, color
 plotshape(sniper_short, "Sniper Short", shape.triangledown, location.abovebar, color.new(color.red, 0), size = size.small, text = "SNIPE")
 plotshape(watch_long, "Watch Long", shape.circle, location.belowbar, color.new(color.green, 40), size = size.tiny)
 plotshape(watch_short, "Watch Short", shape.circle, location.abovebar, color.new(color.maroon, 40), size = size.tiny)
+
+// Big BUY / SELL labels (fire once per trend flip when the checklist completes)
+if show_signal_labels and barstate.isconfirmed
+    if buy_signal
+        label.new(bar_index, low, "BUY", style = label.style_label_up, color = color.new(#089981, 0), textcolor = color.white, size = size.normal)
+    if sell_signal
+        label.new(bar_index, high, "SELL", style = label.style_label_down, color = color.new(#f23645, 0), textcolor = color.white, size = size.normal)
 
 // Trade-plan label on confirmed sniper signals
 if barstate.isconfirmed and sniper_long
@@ -495,7 +554,7 @@ if barstate.islast
     f_add_level(liquidation_cluster_below, color.gray, "Liq Cluster ↓")
 
 // ═════════════════════════════════════════ DASHBOARD ═════════════════════════════════════════
-var table dash = table.new(position.top_right, 4, 19, bgcolor = color.new(#000000, 15), border_width = 1, border_color = color.new(color.gray, 70))
+var table dash = table.new(position.top_right, 4, 20, bgcolor = color.new(#000000, 15), border_width = 1, border_color = color.new(color.gray, 70))
 
 f_row(int r, string comp, string status, color stat_col, int lp, int sp) =>
     table.cell(dash, 0, r, comp, text_color = color.silver, text_size = size.tiny, text_halign = text.align_left)
@@ -567,6 +626,9 @@ if barstate.islast
     string lev_txt = (safe_leverage_ok ? "✓ SAFE  " : "✗ RISKY  ") + "stop " + str.tostring(stop_distance_pct, "#.##") + "% vs liq " + str.tostring(liquidation_distance_pct, "#.##") + "% @" + str.tostring(leverage, "#") + "x"
     f_info(18, "Leverage Check", lev_txt, safe_leverage_ok ? color.lime : #ff5252)
 
+    string chk_txt = "L " + str.tostring(long_conds) + "/5  S " + str.tostring(short_conds) + "/5  (need " + str.tostring(min_conditions) + ")" + (sig_state == 1 ? " | IN: BUY" : sig_state == -1 ? " | IN: SELL" : "")
+    f_info(19, "Signal Checklist", chk_txt, long_conds >= min_conditions ? color.lime : short_conds >= min_conditions ? #ff5252 : color.gray)
+
 // ═════════════════════════════════════════ ALERTS ═════════════════════════════════════════
 alertcondition(sniper_long, "APEX SNIPER LONG", "APEX SNIPER v6 — LONG sniper entry: full confluence met")
 alertcondition(sniper_short, "APEX SNIPER SHORT", "APEX SNIPER v6 — SHORT sniper entry: full confluence met")
@@ -575,18 +637,20 @@ alertcondition(watch_short, "WATCH SHORT", "APEX SNIPER v6 — Short setup build
 alertcondition(bsl_swept, "Liquidity Sweep BSL", "APEX SNIPER v6 — Buy-side liquidity swept")
 alertcondition(ssl_swept, "Liquidity Sweep SSL", "APEX SNIPER v6 — Sell-side liquidity swept")
 alertcondition(in_silver_bullet and not in_silver_bullet[1], "Kill Zone Entry — Silver Bullet", "APEX SNIPER v6 — Silver Bullet window open (10:00-11:00 NY)")
+alertcondition(buy_signal, "APEX BUY", "APEX SNIPER v6 — BUY: confluence checklist complete")
+alertcondition(sell_signal, "APEX SELL", "APEX SNIPER v6 — SELL: confluence checklist complete")
 
 // ═════════════════════════════════════════ STRATEGY EXECUTION ═════════════════════════════════════════
-// Entries fire on confirmed sniper signals only; risk-based sizing from the
-// RISK MANAGEMENT inputs. Scale-out: 50% at 1R, 25% at 2R, 25% at 3R, full
-// position stopped at the ATR stop.
-if barstate.isconfirmed and sniper_long and strategy.position_size == 0
+// Trades mirror the BUY/SELL labels: enter on checklist completion in the
+// trend direction, reverse on the opposite signal. Risk-based sizing from
+// the RISK MANAGEMENT inputs; ATR stop with 50/25/25 scale-out at 1R/2R/3R.
+if barstate.isconfirmed and buy_signal
     strategy.entry("Long", strategy.long, qty = position_size_units)
     strategy.exit("L-TP1", "Long", stop = long_sl, limit = long_tp1, qty_percent = 50)
     strategy.exit("L-TP2", "Long", stop = long_sl, limit = long_tp2, qty_percent = 25)
     strategy.exit("L-TP3", "Long", stop = long_sl, limit = long_tp3, qty_percent = 100)
 
-if barstate.isconfirmed and sniper_short and strategy.position_size == 0
+if barstate.isconfirmed and sell_signal
     strategy.entry("Short", strategy.short, qty = position_size_units)
     strategy.exit("S-TP1", "Short", stop = short_sl, limit = short_tp1, qty_percent = 50)
     strategy.exit("S-TP2", "Short", stop = short_sl, limit = short_tp2, qty_percent = 25)
