@@ -157,7 +157,8 @@ f_volume_profile(float hh, float ll, int lookback, int nbins, float vap) =>
     [poc_p, vah_p, val_p]
 
 // ═════════════════════════════════════════ HTF BIAS ═════════════════════════════════════════
-[htf_close, htf_ma] = request.security(syminfo.tickerid, htf_tf, [close, ta.sma(close, htf_ma_len)], lookahead = barmerge.lookahead_off)
+// Use the last CLOSED htf bar ([1] inside the call) so the bias never repaints intrabar.
+[htf_close, htf_ma] = request.security(syminfo.tickerid, htf_tf, [close[1], ta.sma(close, htf_ma_len)[1]], lookahead = barmerge.lookahead_off)
 bool bullish_bias = htf_close > htf_ma
 bool bearish_bias = htf_close < htf_ma
 
@@ -449,9 +450,12 @@ int short_conds = (s_c1 ? 1 : 0) + (s_c2 ? 1 : 0) + (s_c3 ? 1 : 0) + (s_c4 ? 1 :
 bool long_ready  = long_conds >= min_conditions and trend_bull
 bool short_ready = short_conds >= min_conditions and trend_bear
 
+// State machine flips only on a CONFIRMED (closed) bar -> non-repainting signals.
 var int sig_state = 0
-bool buy_signal  = long_ready and sig_state != 1 and (not short_ready or long_conds > short_conds)
-bool sell_signal = short_ready and sig_state != -1 and not buy_signal
+bool raw_buy  = long_ready and sig_state != 1 and (not short_ready or long_conds > short_conds)
+bool raw_sell = short_ready and sig_state != -1 and not raw_buy
+bool buy_signal  = raw_buy and barstate.isconfirmed
+bool sell_signal = raw_sell and barstate.isconfirmed
 if buy_signal
     sig_state := 1
 if sell_signal
@@ -482,11 +486,11 @@ float stop_distance_pct       = (atr_stop_distance / close) * 100
 bool  safe_leverage_ok        = stop_distance_pct < liquidation_distance_pct * 0.5
 
 // ═════════════════════════════════════════ VISUALS ═════════════════════════════════════════
-// AlphaTrend-style trend ribbon: thick colored line + filled band
+// AlphaTrend-style trend ribbon: thick colored step line + cloud filled to price
 color trend_col = trend_bull ? color.new(#089981, 0) : color.new(#f23645, 0)
-p_st  = plot(st_line, "Trend Band", color = trend_col, linewidth = 3)
-p_st2 = plot(st_line[2], "Trend Band Offset", color = color.new(color.gray, 100))
-fill(p_st, p_st2, color = trend_bull ? color.new(#089981, 65) : color.new(#f23645, 65), title = "Trend Ribbon")
+p_st    = plot(st_line, "Trend Band", color = trend_col, linewidth = 3)
+p_price = plot(close, "Price (ribbon anchor)", color = color.new(color.gray, 100), display = display.none)
+fill(p_st, p_price, color = trend_bull ? color.new(#089981, 80) : color.new(#f23645, 80), title = "Trend Ribbon")
 
 plot(session_vwap, "Session VWAP", color = color.new(color.orange, 0), linewidth = 1)
 plot(anchored_vwap, "Weekly Anchored VWAP", color = color.new(color.aqua, 0), linewidth = 1)
