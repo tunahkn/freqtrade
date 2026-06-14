@@ -232,7 +232,7 @@ bool bull_fvg_tapped = false
 bool bear_fvg_tapped = false
 
 if bull_fvgs.size() > 0
-    for i = bull_fvgs.size() - 1 to 0 by -1
+    for i = bull_fvgs.size() - 1 to 0
         FVG f = bull_fvgs.get(i)
         if f.is_mitigated(low, high) or bar_index - f.created_bar > fvg_lookback
             box.delete(f.bx)
@@ -241,7 +241,7 @@ if bull_fvgs.size() > 0
             bull_fvg_tapped := true
 
 if bear_fvgs.size() > 0
-    for i = bear_fvgs.size() - 1 to 0 by -1
+    for i = bear_fvgs.size() - 1 to 0
         FVG f = bear_fvgs.get(i)
         if f.is_mitigated(low, high) or bar_index - f.created_bar > fvg_lookback
             box.delete(f.bx)
@@ -274,7 +274,7 @@ bool bull_ob_tapped = false
 bool bear_ob_tapped = false
 
 if bull_obs.size() > 0
-    for i = bull_obs.size() - 1 to 0 by -1
+    for i = bull_obs.size() - 1 to 0
         OB o = bull_obs.get(i)
         if o.is_invalidated(close) or o.is_expired(bar_index, ob_max_age)
             box.delete(o.bx)
@@ -283,7 +283,7 @@ if bull_obs.size() > 0
             bull_ob_tapped := true
 
 if bear_obs.size() > 0
-    for i = bear_obs.size() - 1 to 0 by -1
+    for i = bear_obs.size() - 1 to 0
         OB o = bear_obs.get(i)
         if o.is_invalidated(close) or o.is_expired(bar_index, ob_max_age)
             box.delete(o.bx)
