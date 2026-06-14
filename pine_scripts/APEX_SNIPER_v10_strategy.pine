@@ -1,6 +1,9 @@
 //@version=6
-indicator("APEX SNIPER v6 — Institutional Confluence", overlay=true,
-     max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+strategy("APEX SNIPER v10 — Strategy (Backtest)", overlay=true,
+     max_boxes_count=500, max_lines_count=500, max_labels_count=500,
+     initial_capital=10000, currency=currency.USD,
+     commission_type=strategy.commission.percent, commission_value=0.05,
+     slippage=2, process_orders_on_close=true, calc_on_every_tick=false)
 
 // ═════════════════════════════════════════ ENUMS ═════════════════════════════════════════
 enum Direction
@@ -631,12 +634,28 @@ if barstate.islast
     f_info(19, "Signal Checklist", chk_txt, long_conds >= min_conditions ? color.lime : short_conds >= min_conditions ? #ff5252 : color.gray)
 
 // ═════════════════════════════════════════ ALERTS ═════════════════════════════════════════
-alertcondition(sniper_long, "APEX SNIPER LONG", "APEX SNIPER v6 — LONG sniper entry: full confluence met")
-alertcondition(sniper_short, "APEX SNIPER SHORT", "APEX SNIPER v6 — SHORT sniper entry: full confluence met")
-alertcondition(watch_long, "WATCH LONG", "APEX SNIPER v6 — Long setup building, watch for trigger")
-alertcondition(watch_short, "WATCH SHORT", "APEX SNIPER v6 — Short setup building, watch for trigger")
-alertcondition(bsl_swept, "Liquidity Sweep BSL", "APEX SNIPER v6 — Buy-side liquidity swept")
-alertcondition(ssl_swept, "Liquidity Sweep SSL", "APEX SNIPER v6 — Sell-side liquidity swept")
-alertcondition(in_silver_bullet and not in_silver_bullet[1], "Kill Zone Entry — Silver Bullet", "APEX SNIPER v6 — Silver Bullet window open (10:00-11:00 NY)")
-alertcondition(buy_signal, "APEX BUY", "APEX SNIPER v6 — BUY: confluence checklist complete")
-alertcondition(sell_signal, "APEX SELL", "APEX SNIPER v6 — SELL: confluence checklist complete")
+alertcondition(sniper_long, "APEX SNIPER LONG", "APEX SNIPER v10 — LONG sniper entry: full confluence met")
+alertcondition(sniper_short, "APEX SNIPER SHORT", "APEX SNIPER v10 — SHORT sniper entry: full confluence met")
+alertcondition(watch_long, "WATCH LONG", "APEX SNIPER v10 — Long setup building, watch for trigger")
+alertcondition(watch_short, "WATCH SHORT", "APEX SNIPER v10 — Short setup building, watch for trigger")
+alertcondition(bsl_swept, "Liquidity Sweep BSL", "APEX SNIPER v10 — Buy-side liquidity swept")
+alertcondition(ssl_swept, "Liquidity Sweep SSL", "APEX SNIPER v10 — Sell-side liquidity swept")
+alertcondition(in_silver_bullet and not in_silver_bullet[1], "Kill Zone Entry — Silver Bullet", "APEX SNIPER v10 — Silver Bullet window open (10:00-11:00 NY)")
+alertcondition(buy_signal, "APEX BUY", "APEX SNIPER v10 — BUY: confluence checklist complete")
+alertcondition(sell_signal, "APEX SELL", "APEX SNIPER v10 — SELL: confluence checklist complete")
+
+// ═════════════════════════════════════════ STRATEGY EXECUTION ═════════════════════════════════════════
+// Trades mirror the BUY/SELL labels: enter on checklist completion in the
+// trend direction, reverse on the opposite signal. Risk-based sizing from
+// the RISK MANAGEMENT inputs; ATR stop with 50/25/25 scale-out at 1R/2R/3R.
+if buy_signal
+    strategy.entry("Long", strategy.long, qty = position_size_units)
+    strategy.exit("L-TP1", "Long", stop = long_sl, limit = long_tp1, qty_percent = 50)
+    strategy.exit("L-TP2", "Long", stop = long_sl, limit = long_tp2, qty_percent = 25)
+    strategy.exit("L-TP3", "Long", stop = long_sl, limit = long_tp3, qty_percent = 100)
+
+if sell_signal
+    strategy.entry("Short", strategy.short, qty = position_size_units)
+    strategy.exit("S-TP1", "Short", stop = short_sl, limit = short_tp1, qty_percent = 50)
+    strategy.exit("S-TP2", "Short", stop = short_sl, limit = short_tp2, qty_percent = 25)
+    strategy.exit("S-TP3", "Short", stop = short_sl, limit = short_tp3, qty_percent = 100)
