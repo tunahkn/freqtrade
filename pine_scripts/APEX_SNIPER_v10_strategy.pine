@@ -516,9 +516,9 @@ plotshape(watch_short, "Watch Short", shape.circle, location.abovebar, color.new
 // Big BUY / SELL labels (fire once per trend flip when the checklist completes)
 if show_signal_labels and barstate.isconfirmed
     if buy_signal
-        label.new(bar_index, low, "BUY", style = label.style_label_up, color = color.new(#089981, 0), textcolor = color.white, size = size.normal)
+        label.new(bar_index, low, "BUY", style = label.style_label_up, color = color.new(#089981, 0), textcolor = color.white, size = size.large)
     if sell_signal
-        label.new(bar_index, high, "SELL", style = label.style_label_down, color = color.new(#f23645, 0), textcolor = color.white, size = size.normal)
+        label.new(bar_index, high, "SELL", style = label.style_label_down, color = color.new(#f23645, 0), textcolor = color.white, size = size.large)
 
 // Trade-plan label on confirmed sniper signals
 if barstate.isconfirmed and sniper_long
@@ -630,7 +630,9 @@ if barstate.islast
     string lev_txt = (safe_leverage_ok ? "✓ SAFE  " : "✗ RISKY  ") + "stop " + str.tostring(stop_distance_pct, "#.##") + "% vs liq " + str.tostring(liquidation_distance_pct, "#.##") + "% @" + str.tostring(leverage, "#") + "x"
     f_info(18, "Leverage Check", lev_txt, safe_leverage_ok ? color.lime : #ff5252)
 
-    string chk_txt = "L " + str.tostring(long_conds) + "/5  S " + str.tostring(short_conds) + "/5  (need " + str.tostring(min_conditions) + ")" + (sig_state == 1 ? " | IN: BUY" : sig_state == -1 ? " | IN: SELL" : "")
+    string l_chk = (l_c1 ? "✓" : "✗") + (l_c2 ? "✓" : "✗") + (l_c3 ? "✓" : "✗") + (l_c4 ? "✓" : "✗") + (l_c5 ? "✓" : "✗")
+    string s_chk = (s_c1 ? "✓" : "✗") + (s_c2 ? "✓" : "✗") + (s_c3 ? "✓" : "✗") + (s_c4 ? "✓" : "✗") + (s_c5 ? "✓" : "✗")
+    string chk_txt = "L " + l_chk + " " + str.tostring(long_conds) + "/5  S " + s_chk + " " + str.tostring(short_conds) + "/5  (need " + str.tostring(min_conditions) + ")" + (sig_state == 1 ? " | IN: BUY" : sig_state == -1 ? " | IN: SELL" : "")
     f_info(19, "Signal Checklist", chk_txt, long_conds >= min_conditions ? color.lime : short_conds >= min_conditions ? #ff5252 : color.gray)
 
 // ═════════════════════════════════════════ ALERTS ═════════════════════════════════════════
