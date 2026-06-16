@@ -113,7 +113,7 @@ GRP_SIG = "═══ SIGNAL ENGINE (BUY/SELL) ═══"
 st_factor          = input.float(2.0, "Trend Band Factor", step = 0.1, minval = 0.5, group = GRP_SIG)
 st_atr_len         = input.int(10, "Trend Band ATR Length", minval = 1, group = GRP_SIG)
 recent_window      = input.int(12, "Condition Memory (bars)", minval = 1, group = GRP_SIG)
-min_conditions     = input.int(4, "Min Conditions for Signal (of 5)", minval = 1, maxval = 5, group = GRP_SIG)
+min_conditions     = input.int(3, "Min Conditions for Signal (of 5)", minval = 1, maxval = 5, group = GRP_SIG)
 show_signal_labels = input.bool(true, "Show Big BUY/SELL Labels", group = GRP_SIG)
 
 // ═════════════════════════════════════════ HELPERS ═════════════════════════════════════════
