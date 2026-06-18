@@ -37,7 +37,23 @@ bool atBear = alpha < nz(alpha[2], alpha)
 // ── ADX ──
 [diP, diM, adx] = ta.dmi(14, 14)
 bool trending = adx >= adx_th
+bool ranging  = adx < 23
 float atr = ta.atr(14)
+
+// ── 3 KONFLUANS MODELİ (1=işlem, 2&3=bilgi) ──
+float basis = ta.sma(close, 20)
+float dev   = 2 * ta.stdev(close, 20)
+float lower = basis - dev
+float rsi   = ta.rsi(close, 14)
+bool rsiUp30 = ta.crossover(rsi, 30)
+bool rsiUp40 = ta.crossover(rsi, 40)
+// 1) TREND (işlem yapan — doğrulanmış motor)
+bool m_trend = atBull and trending and bull
+// 2) ADAPTİF (bilgi)
+bool m_adapt = (adx >= 23 and atBull and bull) or (ranging and close < lower and rsiUp40 and bull)
+// 3) SNIPER WR (bilgi)
+bool m_sniper = rsiUp30 and bull
+int konf = (m_trend ? 1 : 0) + (m_adapt ? 1 : 0) + (m_sniper ? 1 : 0)
 
 // ── SIGNALS (long/cash) ──
 bool longSig = atBull and trending and bull and barstate.isconfirmed
@@ -83,7 +99,7 @@ if barstate.islast
 
 // ── DETAIL PANEL (ayrı tablo, opak hücreler, sağ) ──
 if barstate.islast
-    var table p = table.new(position.top_right, 2, 8, frame_width=2, frame_color=color.new(color.gray,40))
+    var table p = table.new(position.top_right, 2, 12, frame_width=2, frame_color=color.new(color.gray,40))
     color hdr = color.rgb(20,24,30)
     color val = color.rgb(11,14,17)
     float pnl = inPos ? (close/strategy.position_avg_price - 1)*100 : 0.0
@@ -95,14 +111,22 @@ if barstate.islast
     table.cell(p,1,2,atBull?"🟢 ↑":"🔴 ↓", text_color=atBull?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
     table.cell(p,0,3,"ADX (≥"+str.tostring(adx_th)+")", text_color=color.silver, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
     table.cell(p,1,3,str.tostring(adx,"#.#")+(trending?" ✓":" ✗"), text_color=trending?UP:color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
-    table.cell(p,0,4,"Pozisyon / P&L",  text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
-    table.cell(p,1,4,(inPos?"LONG":"NAKİT")+"  %"+str.tostring(pnl,"#.#"), text_color=pnl>=0?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
-    table.cell(p,0,5,"Giriş / Stop",    text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
-    table.cell(p,1,5,inPos?(str.tostring(strategy.position_avg_price,format.mintick)+" / "+str.tostring(trail,format.mintick)):"—", text_color=color.white, text_size=size.small, bgcolor=val, text_halign=text.align_right)
-    table.cell(p,0,6,"Kaldıraç",        text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
-    table.cell(p,1,6,"max "+str.tostring(max_lev,"#.#")+"x", text_color=color.new(#ffa726,0), text_size=size.small, bgcolor=val, text_halign=text.align_right)
-    table.cell(p,0,7,"OOS PF~1.35 · 1ay=varyans", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_left)
-    table.cell(p,1,7,"sinyal yoksa BEKLE", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,4,"1) TREND (işlem)", text_color=color.white, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,4,m_trend?"🟢 LONG":"BEKLE", text_color=m_trend?UP:color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,5,"2) ADAPTİF (bilgi)", text_color=color.gray, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,5,m_adapt?"🟢 LONG":"BEKLE", text_color=m_adapt?color.new(UP,30):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,6,"3) SNIPER (bilgi)", text_color=color.gray, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,6,m_sniper?"🟢 AL":"BEKLE", text_color=m_sniper?color.new(UP,30):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,7,"KONFLUANS (karar=TREND)", text_color=color.new(color.purple,0), text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,7,str.tostring(konf)+"/3", text_color=konf>=2?UP:konf==1?color.new(#ffa726,0):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,8,"Pozisyon / P&L",  text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,8,(inPos?"LONG":"NAKİT")+"  %"+str.tostring(pnl,"#.#"), text_color=pnl>=0?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,9,"Giriş / Stop",    text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,9,inPos?(str.tostring(strategy.position_avg_price,format.mintick)+" / "+str.tostring(trail,format.mintick)):"—", text_color=color.white, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,10,"Kaldıraç",        text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,10,"max "+str.tostring(max_lev,"#.#")+"x", text_color=color.new(#ffa726,0), text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,11,"OOS PF~1.35 · 1ay=varyans", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_left)
+    table.cell(p,1,11,"sinyal yoksa BEKLE", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_right)
 
 // ── ALERTS (gerçek durum) ──
 if v_long
