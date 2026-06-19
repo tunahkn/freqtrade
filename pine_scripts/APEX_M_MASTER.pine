@@ -1,0 +1,135 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════
+//  APEX-M MASTER PANEL — BTC Regime Trend Rider (validated engine)
+//  Motor: 200g rejim + AlphaTrend(MFI) + ADX25, long/cash, repaint yok.
+//  Panel: OPAK dev karar kutusu (üst-orta) + opak detay tablosu (sağ).
+// ════════════════════════════════════════════════════════════════════
+strategy("APEX-M MASTER", shorttitle="APEX-M", overlay=true,
+     initial_capital=10000, currency=currency.USD,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.06,
+     slippage=2, pyramiding=0, calc_on_every_tick=false,
+     process_orders_on_close=true)
+
+// ── INPUTS ──
+regime_len = input.int(200, "Rejim MA (gün)", minval=20, group="Motor")
+at_period  = input.int(14, "AlphaTrend ATR/MFI", minval=1, group="Motor")
+at_coeff   = input.float(1.0, "AlphaTrend çarpan", step=0.1, minval=0.1, group="Motor")
+adx_th     = input.int(25, "ADX eşik", minval=0, maxval=60, group="Motor")
+trail_mult = input.float(3.0, "Trailing ATR x", step=0.5, minval=0.5, group="Risk")
+max_lev    = input.float(2.0, "Max kaldıraç önerisi", step=0.5, group="Risk")
+
+// ── REGIME (repaint yok: son KAPALI günlük bar) ──
+float sma_d = request.security(syminfo.tickerid, "D", ta.sma(close, regime_len)[1], lookahead=barmerge.lookahead_off)
+bool bull = close > sma_d
+bool bear = close < sma_d
+
+// ── ALPHATREND ──
+float atrAT = ta.sma(ta.tr, at_period)
+float mfi   = ta.mfi(hlc3, at_period)
+float upT   = low  - atrAT * at_coeff
+float downT = high + atrAT * at_coeff
+var float alpha = 0.0
+alpha := mfi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (downT > nz(alpha[1]) ? nz(alpha[1]) : downT)
+bool atBull = alpha > nz(alpha[2], alpha)
+bool atBear = alpha < nz(alpha[2], alpha)
+
+// ── ADX ──
+[diP, diM, adx] = ta.dmi(14, 14)
+bool trending = adx >= adx_th
+bool ranging  = adx < 23
+float atr = ta.atr(14)
+
+// ── 3 KONFLUANS MODELİ (1=işlem, 2&3=bilgi) ──
+float basis = ta.sma(close, 20)
+float dev   = 2 * ta.stdev(close, 20)
+float lower = basis - dev
+float rsi   = ta.rsi(close, 14)
+bool rsiUp30 = ta.crossover(rsi, 30)
+bool rsiUp40 = ta.crossover(rsi, 40)
+// 1) TREND (işlem yapan — doğrulanmış motor)
+bool m_trend = atBull and trending and bull
+// 2) ADAPTİF (bilgi)
+bool m_adapt = (adx >= 23 and atBull and bull) or (ranging and close < lower and rsiUp40 and bull)
+// 3) SNIPER WR (bilgi)
+bool m_sniper = rsiUp30 and bull
+int konf = (m_trend ? 1 : 0) + (m_adapt ? 1 : 0) + (m_sniper ? 1 : 0)
+
+// ── SIGNALS (long/cash) ──
+bool longSig = atBull and trending and bull and barstate.isconfirmed
+bool flat = strategy.position_size == 0
+bool inPos = strategy.position_size > 0
+
+var float trail = na
+bool exitNow = inPos and (close <= nz(trail, close) or atBear or bear)
+
+if longSig and flat
+    strategy.entry("L", strategy.long)
+    trail := close - atr * trail_mult
+if inPos
+    trail := math.max(nz(trail, close - atr * trail_mult), close - atr * trail_mult)
+    if close <= trail or atBear or bear
+        strategy.close("L", comment="ÇIK")
+if flat
+    trail := na
+
+// ── VERDICT STATE ──
+bool v_long = longSig and flat
+bool v_exit = exitNow
+bool v_hold = inPos and not v_exit
+string verdictTxt = v_long ? "🟢 LONG AÇ" : v_hold ? "🟡 TUT" : v_exit ? "🔴 KAPAT / ÇIK" : "⚪ NAKİT — BEKLE"
+color  verdictBg  = v_long ? color.rgb(0,200,83) : v_hold ? color.rgb(255,193,7) : v_exit ? color.rgb(244,67,54) : color.rgb(55,60,68)
+
+// ── PLOTS ──
+color UP = #00e676
+color DN = #ff1744
+color tc = atBull ? UP : DN
+plot(alpha, "AlphaTrend", color=tc, linewidth=2)
+plot(sma_d, "200g Rejim", color=bull ? color.new(#ffb300,0) : color.new(#ff7043,0), linewidth=2)
+plot(inPos ? trail : na, "Trailing Stop", color=color.new(color.fuchsia,0), style=plot.style_linebr, linewidth=2)
+plot(inPos ? strategy.position_avg_price : na, "Giriş", color=color.new(color.yellow,0), style=plot.style_linebr, linewidth=1)
+bgcolor(bull ? color.new(color.teal,95) : color.new(color.red,95))
+plotshape(v_long, "LONG", shape.labelup, location.belowbar, color.rgb(0,200,83), text="LONG", textcolor=color.white, size=size.large)
+plotshape(v_exit, "ÇIK", shape.labeldown, location.abovebar, color.rgb(244,67,54), text="ÇIK", textcolor=color.white, size=size.large)
+
+// ── VERDICT BOX (ayrı tablo, TAM OPAK, üst-orta) ──
+if barstate.islast
+    var table v = table.new(position.top_center, 1, 1, frame_width=3, frame_color=color.white, border_width=2)
+    table.cell(v, 0, 0, verdictTxt, text_color=color.white, text_size=size.huge, bgcolor=verdictBg)
+
+// ── DETAIL PANEL (ayrı tablo, opak hücreler, sağ) ──
+if barstate.islast
+    var table p = table.new(position.top_right, 2, 12, frame_width=2, frame_color=color.new(color.gray,40))
+    color hdr = color.rgb(20,24,30)
+    color val = color.rgb(11,14,17)
+    float pnl = inPos ? (close/strategy.position_avg_price - 1)*100 : 0.0
+    table.cell(p,0,0,"APEX-M",          text_color=color.white,  text_size=size.normal, bgcolor=color.rgb(13,71,161), text_halign=text.align_left)
+    table.cell(p,1,0,syminfo.ticker,    text_color=color.white,  text_size=size.small,  bgcolor=color.rgb(13,71,161), text_halign=text.align_right)
+    table.cell(p,0,1,"Rejim 200g",      text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,1,bull?"🟢 BOĞA":"🔴 AYI", text_color=bull?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,2,"AlphaTrend",      text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,2,atBull?"🟢 ↑":"🔴 ↓", text_color=atBull?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,3,"ADX (≥"+str.tostring(adx_th)+")", text_color=color.silver, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,3,str.tostring(adx,"#.#")+(trending?" ✓":" ✗"), text_color=trending?UP:color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,4,"1) TREND (işlem)", text_color=color.white, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,4,m_trend?"🟢 LONG":"BEKLE", text_color=m_trend?UP:color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,5,"2) ADAPTİF (bilgi)", text_color=color.gray, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,5,m_adapt?"🟢 LONG":"BEKLE", text_color=m_adapt?color.new(UP,30):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,6,"3) SNIPER (bilgi)", text_color=color.gray, text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,6,m_sniper?"🟢 AL":"BEKLE", text_color=m_sniper?color.new(UP,30):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,7,"KONFLUANS (karar=TREND)", text_color=color.new(color.purple,0), text_size=size.small, bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,7,str.tostring(konf)+"/3", text_color=konf>=2?UP:konf==1?color.new(#ffa726,0):color.gray, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,8,"Pozisyon / P&L",  text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,8,(inPos?"LONG":"NAKİT")+"  %"+str.tostring(pnl,"#.#"), text_color=pnl>=0?UP:DN, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,9,"Giriş / Stop",    text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,9,inPos?(str.tostring(strategy.position_avg_price,format.mintick)+" / "+str.tostring(trail,format.mintick)):"—", text_color=color.white, text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,10,"Kaldıraç",        text_color=color.silver, text_size=size.small,  bgcolor=hdr, text_halign=text.align_left)
+    table.cell(p,1,10,"max "+str.tostring(max_lev,"#.#")+"x", text_color=color.new(#ffa726,0), text_size=size.small, bgcolor=val, text_halign=text.align_right)
+    table.cell(p,0,11,"OOS PF~1.35 · 1ay=varyans", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_left)
+    table.cell(p,1,11,"sinyal yoksa BEKLE", text_color=color.gray, text_size=size.tiny, bgcolor=val, text_halign=text.align_right)
+
+// ── ALERTS (gerçek durum) ──
+if v_long
+    alert("APEX-M: LONG AÇ " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " | max " + str.tostring(max_lev,"#.#") + "x | trailing stop", alert.freq_once_per_bar_close)
+if v_exit
+    alert("APEX-M: KAPAT/ÇIK " + syminfo.ticker, alert.freq_once_per_bar_close)

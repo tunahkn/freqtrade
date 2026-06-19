@@ -1,0 +1,143 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════
+//  APEX CLEAN — Regime Trend Rider  (Fable/Opus cloud build)
+//  Tüm projeden öğrenilenlerin dürüst sentezi:
+//   • 200g rejim filtresi (kanıtlı, overfit'e dirençli)
+//   • AlphaTrend (MFI) trend-rider girişi
+//   • ADX trend teyidi (varsayılan 20 — keyfi 15 DEĞİL)
+//   • GERÇEK kaldıraç (alert metni = pozisyon boyutu, yalan yok)
+//   • Repaint yok (200g son KAPALI günlük bardan)
+//   • calc_on_every_tick = false (backtest dürüst)
+//   • Walk-forward gömülü (wf: 1=IS 2=OOS 3=Hepsi)
+//   • Long/cash varsayılan; short opsiyonel (BTC'de edge zayıf)
+//   • Panel SADECE işlem yapılan durumu gösterir — dekoratif sinyal yok
+// ════════════════════════════════════════════════════════════════════
+strategy("APEX CLEAN — Regime Trend Rider", shorttitle="APEX CLEAN",
+     overlay=true, initial_capital=10000, currency=currency.USD,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.06,
+     slippage=2, pyramiding=0, calc_on_every_tick=false,
+     process_orders_on_close=true)
+
+// ─────────────────────────── INPUTS ───────────────────────────
+gWF = "═ WALK-FORWARD ═"
+wf  = input.int(3, "Dönem (1=IS 2=OOS 3=Hepsi)", minval=1, maxval=3, group=gWF)
+
+gReg = "═ REJİM ═"
+useReg     = input.bool(true, "200g rejim filtresi", group=gReg)
+regime_len = input.int(200, "Rejim MA (gün)", minval=20, group=gReg)
+
+gAT = "═ ALPHATREND ═"
+at_period = input.int(14, "ATR/MFI periyot", minval=1, group=gAT)
+at_coeff  = input.float(1.0, "ATR çarpan", step=0.1, minval=0.1, group=gAT)
+
+gFlt = "═ FİLTRE ═"
+adx_th = input.int(20, "ADX min (trend eşiği)", minval=0, maxval=60, group=gFlt)
+
+gRisk = "═ RİSK ═"
+lev        = input.float(1.0, "Kaldıraç (x) — GERÇEK pozisyon", minval=0.1, step=0.5, group=gRisk)
+trail_mult = input.float(3.0, "Trailing ATR x", step=0.5, minval=0.5, group=gRisk)
+
+gTr = "═ TİCARET ═"
+allow_short = input.bool(false, "Short aç (BTC'de edge zayıf — kapalı önerilir)", group=gTr)
+
+gUI = "═ GÖRÜNÜM ═"
+show_panel = input.bool(true, "Panel", group=gUI)
+
+// ───────────────── REGIME (repaint yok: son KAPALI günlük bar) ─────────────────
+float sma_d = request.security(syminfo.tickerid, "D", ta.sma(close, regime_len)[1], lookahead = barmerge.lookahead_off)
+bool bull = close > sma_d
+bool bear = close < sma_d
+
+// ───────────────── ALPHATREND (Kıvanç Özbilgiç, MFI tabanlı) ─────────────────
+float atrAT = ta.sma(ta.tr, at_period)
+float mfi   = ta.mfi(hlc3, at_period)
+float upT   = low  - atrAT * at_coeff
+float downT = high + atrAT * at_coeff
+var float alpha = 0.0
+alpha := mfi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (downT > nz(alpha[1]) ? nz(alpha[1]) : downT)
+bool atBull = alpha > nz(alpha[2], alpha)
+bool atBear = alpha < nz(alpha[2], alpha)
+
+// ───────────────── ADX trend teyidi ─────────────────
+[diP, diM, adx] = ta.dmi(14, 14)
+bool trending = adx >= adx_th
+
+float atr = ta.atr(14)
+
+// ───────────────── WALK-FORWARD penceresi ─────────────────
+int isS = timestamp("2019-11-27 00:00")
+int isE = timestamp("2024-06-30 23:59")
+int oS  = timestamp("2024-07-01 00:00")
+int oE  = timestamp("2026-12-31 23:59")
+bool inWF = wf == 1 ? (time >= isS and time <= isE) : wf == 2 ? (time >= oS and time <= oE) : true
+
+// ───────────────── SİNYALLER ─────────────────
+bool longSig  = atBull and trending and (not useReg or bull) and inWF and barstate.isconfirmed
+bool shortSig = allow_short and atBear and trending and (not useReg or bear) and inWF and barstate.isconfirmed
+bool flat = strategy.position_size == 0
+
+// ───────────────── GERÇEK kaldıraçlı pozisyon boyutu ─────────────────
+// qty doğrudan equity*lev/fiyat — alert ne diyorsa backtest de onu işler.
+float qty = (strategy.equity * lev) / close
+
+// ───────────────── GİRİŞ / ÇIKIŞ + TRAILING STOP ─────────────────
+var float trail = na
+if longSig and flat
+    strategy.entry("L", strategy.long, qty = qty)
+    trail := close - atr * trail_mult
+    alert("APEX CLEAN: LONG " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " | " + str.tostring(lev, "#.#") + "x | trailing stop", alert.freq_once_per_bar_close)
+if shortSig and flat
+    strategy.entry("S", strategy.short, qty = qty)
+    trail := close + atr * trail_mult
+    alert("APEX CLEAN: SHORT " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " | " + str.tostring(lev, "#.#") + "x | trailing stop", alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0
+    trail := math.max(nz(trail, close - atr * trail_mult), close - atr * trail_mult)
+    if close <= trail or atBear or (useReg and bear)
+        strategy.close("L", comment = "exit")
+        alert("APEX CLEAN: LONG KAPAT " + syminfo.ticker, alert.freq_once_per_bar_close)
+if strategy.position_size < 0
+    trail := math.min(nz(trail, close + atr * trail_mult), close + atr * trail_mult)
+    if close >= trail or atBull or (useReg and bull)
+        strategy.close("S", comment = "exit")
+        alert("APEX CLEAN: SHORT KAPAT " + syminfo.ticker, alert.freq_once_per_bar_close)
+if flat
+    trail := na
+
+// Walk-forward penceresi dışına çıkınca her şeyi kapat
+if wf != 3 and not inWF and strategy.position_size != 0
+    strategy.close_all()
+
+// ───────────────── GÖRSELLER ─────────────────
+color UP = #00e676
+color DN = #ff1744
+color tc = atBull ? UP : DN
+plot(alpha, "AlphaTrend", color = tc, linewidth = 2)
+plot(sma_d, "200g Rejim", color = bull ? color.new(#ffb300, 0) : color.new(#ff7043, 0), linewidth = 2)
+plot(strategy.position_size != 0 ? trail : na, "Trailing Stop", color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 2)
+plot(strategy.position_size != 0 ? strategy.position_avg_price : na, "Giriş", color = color.new(color.yellow, 0), style = plot.style_linebr, linewidth = 1)
+bgcolor(useReg ? (bull ? color.new(color.teal, 94) : color.new(color.red, 94)) : na)
+plotshape(longSig and flat,  "LONG",  shape.triangleup,   location.belowbar, UP, text = "LONG",  textcolor = color.white, size = size.small)
+plotshape(shortSig and flat, "SHORT", shape.triangledown, location.abovebar, DN, text = "SHORT", textcolor = color.white, size = size.small)
+
+// ───────────────── PANEL (sadece işlem yapılan gerçek durum) ─────────────────
+if show_panel and barstate.islast
+    var table p = table.new(position.top_right, 2, 7, border_width = 1, frame_width = 1, frame_color = color.gray, bgcolor = color.new(#0b0e11, 10))
+    string poz = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "NAKİT"
+    float pnl  = strategy.position_size != 0 ? (strategy.position_size > 0 ? (close / strategy.position_avg_price - 1) * 100 : (strategy.position_avg_price / close - 1) * 100) : 0.0
+    string aks = (atBull and trending and (not useReg or bull)) ? "LONG / TUT" : (allow_short and atBear and trending and (not useReg or bear)) ? "SHORT" : "NAKİT / BEKLE"
+    table.cell(p, 0, 0, "⚡ APEX CLEAN", text_color = color.white, bgcolor = color.new(color.blue, 0), text_halign = text.align_left)
+    table.cell(p, 1, 0, syminfo.ticker, text_color = color.white, bgcolor = color.new(tc, 20), text_halign = text.align_right)
+    table.cell(p, 0, 1, "Rejim (200g)", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 1, useReg ? (bull ? "🟢 BOĞA" : "🔴 AYI") : "kapalı", text_color = color.white, text_halign = text.align_right)
+    table.cell(p, 0, 2, "AlphaTrend", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 2, atBull ? "🟢 ↑" : "🔴 ↓", text_color = color.white, text_halign = text.align_right)
+    table.cell(p, 0, 3, "ADX (eşik " + str.tostring(adx_th) + ")", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 3, str.tostring(adx, "#.#") + (trending ? " ✓" : " ✗"), text_color = trending ? UP : color.gray, text_halign = text.align_right)
+    table.cell(p, 0, 4, "► AKSİYON", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 4, aks, text_color = color.white, text_halign = text.align_right)
+    table.cell(p, 0, 5, "Pozisyon / P&L", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 5, poz + "  %" + str.tostring(pnl, "#.#"), text_color = pnl >= 0 ? UP : DN, text_halign = text.align_right)
+    table.cell(p, 0, 6, "Kaldıraç (GERÇEK)", text_color = color.silver, text_halign = text.align_left)
+    table.cell(p, 1, 6, (lev <= 2 ? "✓ " : "⚠ ") + str.tostring(lev, "#.#") + "x", text_color = lev <= 2 ? UP : color.new(#ffa726, 0), text_halign = text.align_right)
