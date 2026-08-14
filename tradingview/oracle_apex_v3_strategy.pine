@@ -1,4 +1,26 @@
 //@version=6
+//
+// ORACLE APEX v3.0 — ICT/SMC trend-takip stratejisi
+// ─────────────────────────────────────────────────────────────────────────────
+// NASIL CALISIR
+//   Likidite süpürme (sweep) -> yapi kirilimi (MSS/BOS) -> OTE geri cekilmesi (%50-78.6)
+//   zincirini bekler, 6 bilesenli puanlama ile teyit alir. Ayrica guclu momentum
+//   barlarinda durum makinesini atlayan "Express" giris yolu vardir.
+//
+// GERCEKCI BEKLENTI  (BTCUSDT.P 1h, TradingView DEEP backtest)
+//   Bu bir trend-takip sistemidir: isabet dusuk (~%37-47), kazananlar buyuk (~2-4R),
+//   kaybedenler kucuk (1R). Islemlerin ~%60-70'i TP1'e ulasmadan stop olur — bu
+//   sistemin dogasidir, hata degildir.
+//   * Guclu boga trendinde para kazanir.
+//   * Yatay/chop ve dusus piyasasinda basabas veya hafif zararlidir.
+//   Buy&Hold'u getiriden cok RISK-AYARLI olarak yener (dusuk drawdown, cogu zaman nakitte).
+//   Kutsal kase degildir. Canliya almadan once kucuk parayla ileri-test edin.
+//
+// TAVSIYE EDILEN AYAR (varsayilanlar bu sekilde gelir)
+//   BTC gibi yapisal yukselis trendindeki pariteler : Yon = Long
+//   ETH / dusus egilimli pariteler                  : Yon = Both, ADX SHORT ~16
+//   Risk %1 muhafazakar, %2 dengeli. Risk arttikca drawdown ORANTILI artar.
+// ─────────────────────────────────────────────────────────────────────────────
 strategy("ORACLE APEX v3.0 STRATEJI", overlay=true, max_labels_count=200, max_lines_count=400, max_boxes_count=300, max_bars_back=5000, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=false, calc_on_every_tick=false, pyramiding=0)
 
 // RENKLER
@@ -446,6 +468,17 @@ var float p_tp1    = na
 var float p_tp2    = na
 var float p_tp3    = na
 var bool  p_tp1hit = false
+// Parcali TP miktarlari GIRISTE sabitlenir (mutlak adet olarak).
+// qty_percent KULLANILMAZ: Pine'da yuzde o anki MEVCUT pozisyona gore hesaplanir.
+// TP1 doldugunda pozisyon %50'ye duser ve sonraki barda
+//   XL2 -> kalan %50'nin %30'u = orijinalin %15'i   (niyet %30)
+//   XL3 -> kalanin %20'si      = orijinalin ~%7'si  (niyet %20)
+// ayrica XL1 yeniden gonderilir ve limit fiyati geride kaldigi icin aninda dolar.
+// Sonuc: pozisyon TP1 civarinda ufalanir, TP3'e kadar tasinan buyuk kazanclar hic olusmaz.
+var float q_all = na
+var float q_t1  = na
+var float q_t2  = na
+var float q_t3  = na
 
 flat = strategy.position_size == 0
 
@@ -461,6 +494,10 @@ if av_long and flat
     qrisk    = ra / rl
     qmax     = strategy.equity * i_lev / p_entry
     qf       = math.min(qrisk, qmax)
+    q_all   := qf
+    q_t1    := qf * 0.50
+    q_t2    := qf * 0.30
+    q_t3    := qf - qf * 0.50 - qf * 0.30
     strategy.entry("LONG", strategy.long, qty=qf)
 
 if av_short and flat
@@ -475,26 +512,42 @@ if av_short and flat
     qrisk    = ra / rs
     qmax     = strategy.equity * i_lev / p_entry
     qf       = math.min(qrisk, qmax)
+    q_all   := qf
+    q_t1    := qf * 0.50
+    q_t2    := qf * 0.30
+    q_t3    := qf - qf * 0.50 - qf * 0.30
     strategy.entry("SHORT", strategy.short, qty=qf)
 
-// Pozisyon yonetimi: TP1 50% / TP2 30% / TP3 20% + BE
+// Pozisyon yonetimi: TP1 %50 / TP2 %30 / TP3 %20 + TP1 sonrasi break-even.
+// Dolan TP'ler FIYATA degil GERCEK POZISYON AZALMASINA gore tespit edilir; boylece
+// emir daha aktif degilken olusan bir fitil yanlislikla BE'yi tetiklemez.
 if strategy.position_size > 0
-    if high >= p_tp1
+    done_l  = nz(q_all) - strategy.position_size
+    t1_done = done_l >= q_t1 * 0.99
+    t2_done = done_l >= (q_t1 + q_t2) * 0.99
+    if t1_done
         p_tp1hit := true
     cur_sl_l = (i_be_auto and p_tp1hit) ? p_entry : p_sl0
-    strategy.exit("XL1", from_entry="LONG", qty_percent=50, limit=p_tp1, stop=cur_sl_l)
-    strategy.exit("XL2", from_entry="LONG", qty_percent=30, limit=p_tp2, stop=cur_sl_l)
-    strategy.exit("XL3", from_entry="LONG", qty_percent=20, limit=p_tp3, stop=cur_sl_l)
+    if not t1_done
+        strategy.exit("XL1", from_entry="LONG", qty=q_t1, limit=p_tp1, stop=cur_sl_l)
+    if not t2_done
+        strategy.exit("XL2", from_entry="LONG", qty=q_t2, limit=p_tp2, stop=cur_sl_l)
+    strategy.exit("XL3", from_entry="LONG", qty=q_t3, limit=p_tp3, stop=cur_sl_l)
     if mss_bear and close > p_entry + (p_tp1 - p_entry) * 0.5
         strategy.close("LONG", comment="MSS Exit")
 
 if strategy.position_size < 0
-    if low <= p_tp1
+    done_s  = nz(q_all) - math.abs(strategy.position_size)
+    t1_done_s = done_s >= q_t1 * 0.99
+    t2_done_s = done_s >= (q_t1 + q_t2) * 0.99
+    if t1_done_s
         p_tp1hit := true
     cur_sl_s = (i_be_auto and p_tp1hit) ? p_entry : p_sl0
-    strategy.exit("XS1", from_entry="SHORT", qty_percent=50, limit=p_tp1, stop=cur_sl_s)
-    strategy.exit("XS2", from_entry="SHORT", qty_percent=30, limit=p_tp2, stop=cur_sl_s)
-    strategy.exit("XS3", from_entry="SHORT", qty_percent=20, limit=p_tp3, stop=cur_sl_s)
+    if not t1_done_s
+        strategy.exit("XS1", from_entry="SHORT", qty=q_t1, limit=p_tp1, stop=cur_sl_s)
+    if not t2_done_s
+        strategy.exit("XS2", from_entry="SHORT", qty=q_t2, limit=p_tp2, stop=cur_sl_s)
+    strategy.exit("XS3", from_entry="SHORT", qty=q_t3, limit=p_tp3, stop=cur_sl_s)
     if mss_bull and close < p_entry - (p_entry - p_tp1) * 0.5
         strategy.close("SHORT", comment="MSS Exit")
 
