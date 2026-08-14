@@ -1,0 +1,407 @@
+//@version=6
+indicator("APEX HUNTER  v4.0", overlay=true,
+     max_labels_count=300, max_lines_count=300,
+     max_boxes_count=300, max_bars_back=5000)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  APEX HUNTER v4.0 — Market Scanner  |  Secondary Indicator
+//  Rol: Hangi asset/zaman diliminde fırsat var? → ORACLE ile doğrula
+// ═══════════════════════════════════════════════════════════════════════
+
+// ┌─────────────── RENK SİSTEMİ ─────────────────────────────────────┐
+C_BULL   = #00e5ff;  C_BEAR   = #ff1744;  C_GOLD   = #ffd600
+C_GREEN  = #00c853;  C_RED    = #d50000;  C_PURPLE = #d500f9
+C_ORANGE = #ff6d00;  C_GRAY   = #546e7a;  C_WHITE  = #eceff1
+C_HDR    = #0d1b4b;  C_BG     = #0a0f1e;  C_BG2    = #111827
+C_BG_L   = #052010;  C_BG_S   = #200505;  C_BG_ST  = #0d1030
+// └──────────────────────────────────────────────────────────────────┘
+
+// ── INPUTS ──────────────────────────────────────────────────────────
+g0 = "🎯 GENEL"
+i_mode   = input.string("HYBRID","Mod",options=["SCALP","SWING","HYBRID"],group=g0)
+i_lev    = input.float(10,"Kaldıraç (x)",1,125,0.5,group=g0)
+i_risk   = input.float(1.0,"Risk (%)",0.1,10,0.1,group=g0)
+i_min    = input.int(65,"Min Skor",0,100,group=g0)
+i_mtf    = input.bool(true,"MTF Confluence",group=g0)
+
+g1 = "📈 TREND"
+i_hma    = input.int(55,"HMA",group=g1)
+i_st_a   = input.int(10,"Supertrend ATR",group=g1)
+i_st_m   = input.float(2.5,"Supertrend Çarpan",step=0.1,group=g1)
+i_er     = input.int(14,"Efficiency Ratio",group=g1)
+
+g2 = "⚡ MOMENTUM"
+i_rsi    = input.int(14,"RSI",group=g2)
+i_wt1    = input.int(10,"WT Channel",group=g2)
+i_wt2    = input.int(21,"WT Average",group=g2)
+
+g3 = "🏦 SMC"
+i_swing  = input.int(10,"Swing Uzunluk",group=g3)
+i_ob     = input.bool(true,"Order Block",group=g3)
+i_fvg    = input.bool(true,"FVG",group=g3)
+i_liq    = input.bool(true,"Likidite",group=g3)
+
+g4 = "🛡 RİSK"
+i_atr    = input.int(14,"ATR",group=g4)
+i_sl     = input.float(1.5,"SL ATR Çarpan",step=0.1,group=g4)
+i_tp1    = input.float(1.5,"TP1 RR",step=0.1,group=g4)
+i_tp2    = input.float(2.5,"TP2 RR",step=0.1,group=g4)
+i_tp3    = input.float(4.0,"TP3 RR",step=0.1,group=g4)
+
+g5 = "🎨 GÖRSEL"
+i_dash   = input.bool(true,"Dashboard",group=g5)
+i_labels = input.bool(true,"Sinyal Etiketleri",group=g5)
+i_kz     = input.bool(true,"Killzone Rengi",group=g5)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 1: GÖSTERGELER
+// ═══════════════════════════════════════════════════════════════════════
+atr  = ta.atr(i_atr)
+hma  = ta.hma(close, i_hma)
+hma_up = hma > hma[1]
+hma_slope = (hma - hma[3])/hma*100.0
+
+[st_line, st_dir] = ta.supertrend(i_st_m, i_st_a)
+st_bull = st_dir < 0
+
+ema8=ta.ema(close,8); ema13=ta.ema(close,13); ema21=ta.ema(close,21)
+ema34=ta.ema(close,34); ema55=ta.ema(close,55)
+ribbon_bull = ema8>ema13 and ema13>ema21 and ema21>ema34 and ema34>ema55
+ribbon_bear = ema8<ema13 and ema13<ema21 and ema21<ema34 and ema34<ema55
+
+er_net  = math.abs(close - close[i_er])
+er_path = math.sum(math.abs(ta.change(close)), i_er)
+er      = er_path > 0.0 ? er_net/er_path : 0.0
+trending= er > 0.45
+
+[diplus, diminus, adx] = ta.dmi(14,14)
+adx_strong = adx > 25.0
+
+vwap_val = ta.vwap(hlc3)
+
+htf = timeframe.period=="1"?"15":timeframe.period=="5"?"60":
+      timeframe.period=="15"?"240":timeframe.period=="60"?"D":"W"
+htf_bull = i_mtf ? request.security(syminfo.tickerid,htf,hma_up,lookahead=barmerge.lookahead_off) : true
+htf_bear = i_mtf ? request.security(syminfo.tickerid,htf,not hma_up,lookahead=barmerge.lookahead_off) : true
+
+// RSI
+rsi = ta.rsi(close, i_rsi)
+rsi_bull_div = ta.lowest(low,5)<ta.lowest(low,5)[5] and ta.lowest(rsi,5)>ta.lowest(rsi,5)[5]
+rsi_bear_div = ta.highest(high,5)>ta.highest(high,5)[5] and ta.highest(rsi,5)<ta.highest(rsi,5)[5]
+
+// WT
+ap=hlc3; esa=ta.ema(ap,i_wt1)
+d_wt=ta.ema(math.abs(ap-esa),i_wt1)
+ci=d_wt>0.0?(ap-esa)/(0.015*d_wt):0.0
+wt1=ta.ema(ci,i_wt2); wt2=ta.sma(wt1,4)
+wt_xup=ta.crossover(wt1,wt2) and wt1<-40.0
+wt_xdn=ta.crossunder(wt1,wt2) and wt1>40.0
+wt_bull=wt1>wt2; wt_bear=wt1<wt2
+wt_os=wt1<-50.0; wt_ob=wt1>50.0
+
+// MACD
+[macd,macd_sig,macd_hist]=ta.macd(close,12,26,9)
+macd_bull=macd>macd_sig and macd_hist>macd_hist[1]
+macd_bear=macd<macd_sig and macd_hist<macd_hist[1]
+
+// Volume
+vol_sma=ta.sma(volume,20)
+rvol=volume/math.max(vol_sma,0.00001)
+inst_vol=rvol>1.8
+
+// CVD rolling
+bv=volume*((close-low)/math.max(high-low,0.00001))
+sv=volume*((high-close)/math.max(high-low,0.00001))
+cvd=math.sum(bv-sv,20)
+cvd_pos=cvd>0.0; cvd_neg=cvd<0.0
+
+// BB Squeeze
+bb_b=ta.sma(close,20); bb_d=ta.stdev(close,20)
+kc_r=atr*1.5
+squeeze=((bb_b+2*bb_d)<(bb_b+kc_r)) and ((bb_b-2*bb_d)>(bb_b-kc_r))
+sq_rel=not squeeze and squeeze[1] and inst_vol
+
+// Killzone
+h_utc=hour(time,"UTC")
+kz_lon=h_utc>=7 and h_utc<10
+kz_ny =h_utc>=13 and h_utc<16
+in_kz =kz_lon or kz_ny
+bgcolor(i_kz and kz_lon?color.new(#1a3a6b,88):na, title="London")
+bgcolor(i_kz and kz_ny ?color.new(#0d3320,88):na, title="NY")
+
+// Likidite sweep
+ssl=ta.lowest(low[1],20); bsl=ta.highest(high[1],20)
+sweep_bull=low<ssl and close>ssl and close>open and in_kz
+sweep_bear=high>bsl and close<bsl and close<open and in_kz
+
+// SMC
+swing_h=ta.pivothigh(high,i_swing,i_swing); swing_l=ta.pivotlow(low,i_swing,i_swing)
+var float sh1=na; var float sh2=na; var float sl1=na; var float sl2=na
+if not na(swing_h)
+    sh2:=sh1; sh1:=swing_h
+if not na(swing_l)
+    sl2:=sl1; sl1:=swing_l
+
+bos_bull =not na(sh1) and not na(sh2) and ta.crossover(close,sh1) and sh1>sh2 and close>open
+bos_bear =not na(sl1) and not na(sl2) and ta.crossunder(close,sl1) and sl1<sl2 and close<open
+mss_bull =not na(sh1) and not na(sh2) and ta.crossover(close,sh1) and sh1<sh2 and close>open
+mss_bear =not na(sl1) and not na(sl2) and ta.crossunder(close,sl1) and sl1>sl2 and close<open
+
+fvg_bull=low>high[2] and close[1]>high[2]
+fvg_bear=high<low[2] and close[1]<low[2]
+
+if i_fvg
+    if fvg_bull
+        box.new(bar_index-2,high[2],bar_index+8,low,
+             border_color=color.new(C_BULL,60),bgcolor=color.new(C_BULL,92))
+    if fvg_bear
+        box.new(bar_index-2,high,bar_index+8,low[2],
+             border_color=color.new(C_BEAR,60),bgcolor=color.new(C_BEAR,92))
+
+ob_bc=bos_bull and close[i_swing]<open[i_swing]
+ob_br=bos_bear and close[i_swing]>open[i_swing]
+if i_ob
+    if ob_bc
+        box.new(bar_index-i_swing,low[i_swing],bar_index+12,high[i_swing],
+             border_color=color.new(C_GREEN,20),bgcolor=color.new(C_GREEN,88))
+    if ob_br
+        box.new(bar_index-i_swing,low[i_swing],bar_index+12,high[i_swing],
+             border_color=color.new(C_RED,20),bgcolor=color.new(C_RED,88))
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 2: NORMALIZE SKOR
+// ═══════════════════════════════════════════════════════════════════════
+fn(v,lo,hi) => math.max(0.0,math.min(1.0,(v-lo)/math.max(hi-lo,0.00001)))
+
+// LONG
+sl_trend  = (hma_up?1.0:0.0)*0.7+(st_bull?1.0:0.0)*0.3
+sl_ribbon = ribbon_bull?1.0:ribbon_bear?0.0:0.5
+sl_er     = fn(er,0.2,0.8)
+sl_rsi    = fn(rsi,40.0,65.0)
+sl_wt     = wt_bull?1.0:0.0
+sl_macd   = macd_bull?1.0:0.3
+sl_cvd    = cvd_pos?1.0:0.0
+sl_vol    = fn(rvol,0.8,2.5)
+sl_vwap   = close>vwap_val?1.0:0.0
+sl_htf    = htf_bull?1.0:0.0
+sl_smc    = (mss_bull?1.0:bos_bull?0.5:0.0)
+sl_sweep  = sweep_bull?1.0:0.0
+sl_sq     = sq_rel and close>bb_b?1.0:0.0
+sl_kz     = in_kz?1.0:0.5
+
+raw_l = sl_trend*18+sl_ribbon*8+sl_er*10+sl_rsi*8+sl_wt*8+
+        sl_macd*8+sl_cvd*7+sl_vol*6+sl_vwap*5+sl_htf*8+
+        sl_smc*7+sl_sweep*5+sl_sq*4+sl_kz*4
+long_score = math.min(100, int(raw_l))
+
+// SHORT
+ss_trend  = (not hma_up?1.0:0.0)*0.7+(not st_bull?1.0:0.0)*0.3
+ss_ribbon = ribbon_bear?1.0:ribbon_bull?0.0:0.5
+ss_rsi    = fn(100.0-rsi,40.0,65.0)
+ss_wt     = wt_bear?1.0:0.0
+ss_macd   = macd_bear?1.0:0.3
+ss_cvd    = cvd_neg?1.0:0.0
+ss_vwap   = close<vwap_val?1.0:0.0
+ss_htf    = htf_bear?1.0:0.0
+ss_smc    = (mss_bear?1.0:bos_bear?0.5:0.0)
+ss_sweep  = sweep_bear?1.0:0.0
+
+raw_s = ss_trend*18+ss_ribbon*8+sl_er*10+ss_rsi*8+ss_wt*8+
+        ss_macd*8+ss_cvd*7+sl_vol*6+ss_vwap*5+ss_htf*8+
+        ss_smc*7+ss_sweep*5+sl_sq*4+sl_kz*4
+short_score = math.min(100, int(raw_s))
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 3: SİNYALLER
+// ═══════════════════════════════════════════════════════════════════════
+scalp = i_mode=="SCALP" or i_mode=="HYBRID"
+swing = i_mode=="SWING" or i_mode=="HYBRID"
+
+trig_l = (scalp and (sweep_bull or (sq_rel and close>bb_b))) or
+         (swing and (mss_bull or bos_bull))
+trig_s = (scalp and (sweep_bear or (sq_rel and close<bb_b))) or
+         (swing and (mss_bear or bos_bear))
+
+av_long  = long_score>=i_min  and trig_l and not (long_score>=i_min  and trig_l)[1]
+av_short = short_score>=i_min and trig_s and not (short_score>=i_min and trig_s)[1]
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 4: RİSK
+// ═══════════════════════════════════════════════════════════════════════
+var float ep=na; var float slp=na
+var float t1=na; var float t2=na; var float t3=na
+var int   td=0
+
+if av_long
+    ep:=close; slp:=close-atr*i_sl; r=ep-slp
+    t1:=ep+r*i_tp1; t2:=ep+r*i_tp2; t3:=ep+r*i_tp3; td:=1
+if av_short
+    ep:=close; slp:=close+atr*i_sl; r=slp-ep
+    t1:=ep-r*i_tp1; t2:=ep-r*i_tp2; t3:=ep-r*i_tp3; td:=-1
+
+kp_l=td==1  and not na(slp) and (ta.crossunder(close,slp) or ta.crossover(close,t3) or (wt_xdn and wt_ob))
+kp_s=td==-1 and not na(slp) and (ta.crossover(close,slp)  or ta.crossunder(close,t3) or (wt_xup and wt_os))
+if kp_l or kp_s
+    td:=0
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 5: GRAFİK
+// ═══════════════════════════════════════════════════════════════════════
+plot(hma,    "HMA",  hma_up?color.new(C_BULL,15):color.new(C_BEAR,15), 2)
+plot(ema21,  "E21",  color.new(C_BULL,65), 1)
+plot(ema55,  "E55",  color.new(C_BEAR,65), 1)
+plot(vwap_val,"VWAP",color.new(C_WHITE,45),2)
+plot(st_line, "ST",  st_bull?color.new(C_GREEN,30):color.new(C_RED,30),1,plot.style_linebr)
+
+plot(td!=0?slp:na,"SL", color.new(C_RED,10), 2,plot.style_linebr)
+plot(td!=0?t1:na, "T1", color.new(C_GREEN,50),1,plot.style_linebr)
+plot(td!=0?t2:na, "T2", color.new(C_GREEN,30),1,plot.style_linebr)
+plot(td!=0?t3:na, "T3", color.new(C_GREEN,5), 2,plot.style_linebr)
+
+plotshape(sweep_bull,"Sw↑",shape.diamond,location.belowbar,color.new(C_ORANGE,0),size=size.tiny)
+plotshape(sweep_bear,"Sw↓",shape.diamond,location.abovebar,color.new(C_ORANGE,0),size=size.tiny)
+
+bar5(int v) =>
+    v>=5?"█████":v==4?"████░":v==3?"███░░":v==2?"██░░░":v==1?"█░░░░":"░░░░░"
+
+score_bar(int v) =>
+    p=math.round(v/20.0)
+    p>=5?"█████":p==4?"████░":p==3?"███░░":p==2?"██░░░":p==1?"█░░░░":"░░░░░"
+
+if i_labels
+    if av_long
+        r_pct=(close-slp)/close*100.0
+        txt="▲  LONG  "+i_mode+"\n"+
+            "────────────────\n"+
+            "Skor  "+score_bar(long_score)+" "+str.tostring(long_score)+"\n"+
+            "Entry  "+str.tostring(ep,"#.##")+"\n"+
+            "SL     "+str.tostring(slp,"#.##")+"  ("+str.tostring(r_pct,"#.##")+"%)\n"+
+            "TP1    "+str.tostring(t1,"#.##")+"  1:"+str.tostring(i_tp1,"#.#")+"\n"+
+            "TP2    "+str.tostring(t2,"#.##")+"  1:"+str.tostring(i_tp2,"#.#")+"\n"+
+            "TP3    "+str.tostring(t3,"#.##")+"  1:"+str.tostring(i_tp3,"#.#")+"\n"+
+            str.tostring(i_lev,"#")+"x  |  Risk %"+str.tostring(i_risk,"#.#")
+        label.new(bar_index,low-atr*3.0,txt,
+             color=color.new(C_GREEN,5),textcolor=C_WHITE,
+             style=label.style_label_up,size=size.normal)
+    if av_short
+        r_pct=(slp-close)/close*100.0
+        txt="▼  SHORT  "+i_mode+"\n"+
+            "────────────────\n"+
+            "Skor  "+score_bar(short_score)+" "+str.tostring(short_score)+"\n"+
+            "Entry  "+str.tostring(ep,"#.##")+"\n"+
+            "SL     "+str.tostring(slp,"#.##")+"  ("+str.tostring(r_pct,"#.##")+"%)\n"+
+            "TP1    "+str.tostring(t1,"#.##")+"  1:"+str.tostring(i_tp1,"#.#")+"\n"+
+            "TP2    "+str.tostring(t2,"#.##")+"  1:"+str.tostring(i_tp2,"#.#")+"\n"+
+            "TP3    "+str.tostring(t3,"#.##")+"  1:"+str.tostring(i_tp3,"#.#")+"\n"+
+            str.tostring(i_lev,"#")+"x  |  Risk %"+str.tostring(i_risk,"#.#")
+        label.new(bar_index,high+atr*3.0,txt,
+             color=color.new(C_RED,5),textcolor=C_WHITE,
+             style=label.style_label_down,size=size.normal)
+    if kp_l
+        label.new(bar_index,high+atr,"EXIT  LONG",
+             color=color.new(C_GOLD,5),textcolor=C_BG,
+             style=label.style_label_down,size=size.small)
+    if kp_s
+        label.new(bar_index,low-atr,"EXIT  SHORT",
+             color=color.new(C_GOLD,5),textcolor=C_BG,
+             style=label.style_label_up,size=size.small)
+
+if mss_bull
+    label.new(bar_index,low-atr*0.7,"MSS",color=color.new(C_PURPLE,10),
+         textcolor=C_WHITE,style=label.style_label_up,size=size.tiny)
+if mss_bear
+    label.new(bar_index,high+atr*0.7,"MSS",color=color.new(C_PURPLE,10),
+         textcolor=C_WHITE,style=label.style_label_down,size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 6: DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════
+var table dt = table.new(position.top_right, 2, 18,
+     bgcolor=color.new(C_BG,5),
+     border_color=color.new(#1e2a3a,30), border_width=1,
+     frame_color=color.new(C_ORANGE,50), frame_width=2)
+
+dc(int r,int c,string t,color tc,color bc) =>
+    table.cell(dt,c,r,t,text_color=tc,bgcolor=bc,text_size=size.small,text_halign=text.align_left)
+dc_c(int r,int c,string t,color tc,color bc) =>
+    table.cell(dt,c,r,t,text_color=tc,bgcolor=bc,text_size=size.small,text_halign=text.align_center)
+
+if i_dash and barstate.islast
+    SEP=color.new(#1a2035,20)
+    l_c=long_score>=80?C_BULL:long_score>=65?C_GOLD:color.new(C_GRAY,20)
+    s_c=short_score>=80?C_BEAR:short_score>=65?C_ORANGE:color.new(C_GRAY,20)
+    er_c=er>0.6?C_BULL:er>0.4?C_GOLD:C_BEAR
+    mtf_c=htf_bull?C_BULL:htf_bear?C_BEAR:C_GOLD
+    kz_c=in_kz?C_BULL:color.new(C_GRAY,30)
+    v_c=inst_vol?C_ORANGE:color.new(C_GRAY,30)
+    pos_c=td==1?C_BULL:td==-1?C_BEAR:color.new(C_GRAY,30)
+    pos_t=td==1?"● LONG":td==-1?"● SHORT":"○ —"
+
+    dc_c(0,0,"  APEX HUNTER  v4.0  ",C_ORANGE,color.new(C_HDR,0))
+    dc_c(0,1,i_mode+"  "+str.tostring(i_lev,"#")+"x",C_WHITE,color.new(C_HDR,0))
+
+    dc_c(1,0,"── MARKET ──────────",color.new(C_GRAY,40),SEP)
+    dc_c(1,1,"────────────────────",color.new(C_GRAY,40),SEP)
+
+    dc(2,0,"  MTF Trend",         color.new(C_GRAY,20),C_BG2)
+    dc(2,1,"  "+(htf_bull?"▲ BULL":htf_bear?"▼ BEAR":"◆ MIX"),mtf_c,C_BG2)
+    dc(3,0,"  Efficiency Ratio",  color.new(C_GRAY,20),C_BG2)
+    dc(3,1,"  "+str.tostring(er,"#.##")+(trending?" ✓":" ✗"),er_c,C_BG2)
+    dc(4,0,"  Killzone",          color.new(C_GRAY,20),C_BG2)
+    dc(4,1,"  "+(in_kz?"✓ "+(kz_lon?"LONDON":"NY OPEN"):"✗ Out"),kz_c,C_BG2)
+    dc(5,0,"  RVOL",              color.new(C_GRAY,20),C_BG2)
+    dc(5,1,"  "+str.tostring(rvol,"#.##")+"x"+(inst_vol?"  INST":""),v_c,C_BG2)
+
+    dc_c(6,0,"── SCORE ───────────",color.new(C_GRAY,40),SEP)
+    dc_c(6,1,"────────────────────",color.new(C_GRAY,40),SEP)
+
+    dc(7,0,"  LONG  "+score_bar(long_score), color.new(C_BULL,30),C_BG_L)
+    dc(7,1,"  "+str.tostring(long_score)+"/100"+(long_score>=i_min?" ✓":""),l_c,C_BG_L)
+    dc(8,0,"  SHORT "+score_bar(short_score),color.new(C_BEAR,30),C_BG_S)
+    dc(8,1,"  "+str.tostring(short_score)+"/100"+(short_score>=i_min?" ✓":""),s_c,C_BG_S)
+
+    dc_c(9,0,"── SIGNALS ─────────",color.new(C_GRAY,40),SEP)
+    dc_c(9,1,"────────────────────",color.new(C_GRAY,40),SEP)
+
+    wt_t=wt_os?"OS "+str.tostring(wt1,"#.#"):wt_ob?"OB "+str.tostring(wt1,"#.#"):str.tostring(wt1,"#.#")
+    wt_c=wt_os?C_BULL:wt_ob?C_BEAR:C_WHITE
+    rsi_t=rsi<30?"OS "+str.tostring(rsi,"#.#"):rsi>70?"OB "+str.tostring(rsi,"#.#"):str.tostring(rsi,"#.#")
+    rsi_c=rsi<30?C_BULL:rsi>70?C_BEAR:C_WHITE
+
+    dc(10,0,"  Wave Trend",       color.new(C_GRAY,20),C_BG2)
+    dc(10,1,"  "+wt_t,            wt_c,C_BG2)
+    dc(11,0,"  RSI",              color.new(C_GRAY,20),C_BG2)
+    dc(11,1,"  "+rsi_t,           rsi_c,C_BG2)
+    dc(12,0,"  CVD",              color.new(C_GRAY,20),C_BG2)
+    dc(12,1,"  "+(cvd_pos?"▲ Alım":"▼ Satış"),cvd_pos?C_BULL:C_BEAR,C_BG2)
+    dc(13,0,"  Squeeze",          color.new(C_GRAY,20),C_BG2)
+    dc(13,1,"  "+(squeeze?"● SıkışıK":sq_rel?"◆ PATLAMA":"○ Normal"),
+         squeeze?C_GOLD:sq_rel?C_ORANGE:color.new(C_GRAY,30),C_BG2)
+
+    dc_c(14,0,"── POSITION ────────",color.new(C_GRAY,40),SEP)
+    dc_c(14,1,"────────────────────",color.new(C_GRAY,40),SEP)
+
+    dc(15,0,"  Pozisyon",         color.new(C_GRAY,20),C_BG_ST)
+    dc(15,1,"  "+pos_t,           pos_c,C_BG_ST)
+    dc(16,0,"  ATR %",            color.new(C_GRAY,20),C_BG_ST)
+    dc(16,1,"  "+str.tostring(atr/close*100,"#.##")+"%",C_WHITE,C_BG_ST)
+    dc(17,0,"  Min Skor",         color.new(C_GRAY,20),C_BG_ST)
+    dc(17,1,"  "+str.tostring(i_min),C_WHITE,C_BG_ST)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ALERTLER
+// ═══════════════════════════════════════════════════════════════════════
+alertcondition(av_long,  "APEX  LONG",
+     '{"signal":"LONG","src":"APEX_HUNTER_v4","sym":"{{ticker}}",' +
+     '"tf":"{{interval}}","px":"{{close}}",' +
+     '"score":"'+str.tostring(long_score)+'",' +
+     '"kz":"'+(in_kz?(kz_lon?"LONDON":"NY"):"-")+'",' +
+     '"rvol":"'+str.tostring(rvol,"#.##")+'","act":"buy"}')
+alertcondition(av_short, "APEX  SHORT",
+     '{"signal":"SHORT","src":"APEX_HUNTER_v4","sym":"{{ticker}}",' +
+     '"tf":"{{interval}}","px":"{{close}}",' +
+     '"score":"'+str.tostring(short_score)+'",' +
+     '"kz":"'+(in_kz?(kz_lon?"LONDON":"NY"):"-")+'",' +
+     '"rvol":"'+str.tostring(rvol,"#.##")+'","act":"sell"}')
+alertcondition(kp_l or kp_s,"APEX  EXIT",
+     '{"signal":"EXIT","src":"APEX_HUNTER_v4","sym":"{{ticker}}","px":"{{close}}","act":"close"}')

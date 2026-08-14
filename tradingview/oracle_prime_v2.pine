@@ -1,0 +1,702 @@
+//@version=6
+indicator("ORACLE PRIME  v2.0", overlay=true,
+     max_labels_count=200, max_lines_count=300,
+     max_boxes_count=200, max_bars_back=5000)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ORACLE PRIME v2.0 — Ultra Precision  |  Competition Grade
+//  Sinyal Akışı: Killzone → SSL/BSL Sweep → MSS → OTE → Onay → AV
+// ═══════════════════════════════════════════════════════════════════════
+
+// ┌─────────────────── RENK SİSTEMİ ─────────────────────────────────┐
+C_BULL      = #00e5ff   // Cyan  — boğa sinyali
+C_BEAR      = #ff1744   // Kırmızı — ayı sinyali
+C_GOLD      = #ffd600   // Altın — OTE / uyarı
+C_GREEN     = #00c853   // Yeşil — uzun pozisyon
+C_RED       = #d50000   // Koyu kırmızı — kısa pozisyon
+C_PURPLE    = #d500f9   // Mor — MSS
+C_ORANGE    = #ff6d00   // Turuncu — sweep
+C_GRAY      = #546e7a   // Gri — nötr
+C_WHITE     = #eceff1   // Beyaz
+C_HDR       = #0d1b4b   // Header arka plan
+C_BG        = #0a0f1e   // Panel arka plan
+C_BG2       = #111827   // Satır arka plan
+C_BG_L      = #052010   // Long satır
+C_BG_S      = #200505   // Short satır
+C_BG_STAT   = #0d1030   // İstatistik satır
+// └──────────────────────────────────────────────────────────────────┘
+
+// ── INPUTS ──────────────────────────────────────────────────────────
+g0 = "🎯 GENEL"
+i_mode      = input.string("SNIPER","Mod",
+              options=["SNIPER","PRECISION","NORMAL"], group=g0,
+              tooltip="SNIPER=4+ onay | PRECISION=3+ | NORMAL=2+")
+i_lev       = input.float(10,"Kaldıraç (x)",1,125,0.5,group=g0)
+i_risk      = input.float(1.0,"Risk (%)",0.1,5,0.1,group=g0)
+i_daily_max = input.int(1,"Günlük Max Sinyal",1,3,group=g0)
+
+g1 = "📈 TREND"
+i_htf1      = input.string("240","Üst TF 1",options=["60","240","D"],group=g1)
+i_htf2      = input.string("D",  "Üst TF 2",options=["240","D","W"], group=g1)
+i_hma_len   = input.int(55,"HMA",group=g1)
+i_er_len    = input.int(21,"Efficiency Ratio",group=g1)
+
+g2 = "🏦 SMC"
+i_ssl_len   = input.int(20,"SSL/BSL Pencere",group=g2)
+i_swing_len = input.int(8, "Swing Uzunluk",group=g2)
+i_mss_bars  = input.int(15,"MSS Bekleme (bar)",group=g2)
+i_ote_bars  = input.int(30,"OTE Bekleme (bar)",group=g2)
+
+g3 = "🕐 KILLZONE (UTC)"
+i_kz_lon    = input.bool(true,"London 07:00–10:00",group=g3)
+i_kz_ny     = input.bool(true,"NY Open 13:00–16:00",group=g3)
+
+g4 = "⚡ FİLTRELER"
+i_wt_n1     = input.int(10,"WT Channel",group=g4)
+i_wt_n2     = input.int(21,"WT Average",group=g4)
+i_rsi_len   = input.int(14,"RSI",group=g4)
+i_rvol_min  = input.float(2.0,"Min RVOL",0.5,5,0.1,group=g4)
+i_cvd_len   = input.int(20,"CVD Pencere",group=g4)
+
+g5 = "🛡 RİSK"
+i_atr_len   = input.int(14,"ATR",group=g5)
+i_sl_buf    = input.float(0.5,"SL Buffer (ATR)",0.1,2,0.1,group=g5)
+i_tp1rr     = input.float(1.5,"TP1 (RR)",step=0.1,group=g5)
+i_tp2rr     = input.float(2.5,"TP2 (RR)",step=0.1,group=g5)
+i_tp3rr     = input.float(4.0,"TP3 (RR)",step=0.1,group=g5)
+
+g6 = "🎨 GÖRSEL"
+i_show_liq  = input.bool(true,"SSL/BSL Seviyeleri",group=g6)
+i_show_ote  = input.bool(true,"OTE Bölgesi",group=g6)
+i_show_fvg  = input.bool(true,"Fair Value Gap",group=g6)
+i_show_ob   = input.bool(true,"Order Block",group=g6)
+i_show_kz   = input.bool(true,"Killzone Rengi",group=g6)
+i_dash      = input.bool(true,"Dashboard",group=g6)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 1: TEMEL GÖSTERGELER
+// ═══════════════════════════════════════════════════════════════════════
+atr      = ta.atr(i_atr_len)
+atr_pct  = atr / close * 100.0
+
+hma_val   = ta.hma(close, i_hma_len)
+hma_up    = hma_val > hma_val[1]
+hma_slope = (hma_val - hma_val[3]) / hma_val * 100.0
+
+er_net   = math.abs(close - close[i_er_len])
+er_path  = math.sum(math.abs(ta.change(close)), i_er_len)
+er       = er_path > 0.0 ? er_net / er_path : 0.0
+trending = er > 0.50
+
+[diplus, diminus, adx_val] = ta.dmi(14, 14)
+adx_strong = adx_val > 25.0
+adx_bull   = diplus > diminus
+adx_bear   = diminus > diplus
+
+vwap_val   = ta.vwap(hlc3)
+above_vwap = close > vwap_val
+ema21      = ta.ema(close, 21)
+ema55      = ta.ema(close, 55)
+
+htf1_bull  = request.security(syminfo.tickerid, i_htf1, hma_up, lookahead=barmerge.lookahead_off)
+htf2_bull  = request.security(syminfo.tickerid, i_htf2, hma_up, lookahead=barmerge.lookahead_off)
+macro_bull = htf1_bull and htf2_bull
+macro_bear = not htf1_bull and not htf2_bull
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 2: KİLLZONE
+// ═══════════════════════════════════════════════════════════════════════
+h_utc     = hour(time, "UTC")
+kz_london = i_kz_lon and h_utc >= 7  and h_utc < 10
+kz_ny     = i_kz_ny  and h_utc >= 13 and h_utc < 16
+in_kz     = kz_london or kz_ny
+kz_name   = kz_london ? "LONDON" : kz_ny ? "NY OPEN" : "—"
+
+bgcolor(i_show_kz and kz_london ? color.new(#1a3a6b, 88) : na, title="London KZ")
+bgcolor(i_show_kz and kz_ny     ? color.new(#0d3320, 88) : na, title="NY KZ")
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 3: SSL / BSL SEVİYELERİ
+// ═══════════════════════════════════════════════════════════════════════
+ssl_level = ta.lowest(low[1],   i_ssl_len)
+bsl_level = ta.highest(high[1], i_ssl_len)
+ssl_50    = ta.lowest(low[1],   50)
+bsl_50    = ta.highest(high[1], 50)
+
+if i_show_liq and barstate.islast
+    // Küçük pencere (20 bar)
+    line.new(bar_index - i_ssl_len, ssl_level, bar_index + 8, ssl_level,
+         color=color.new(C_BULL, 30), style=line.style_dashed, width=1)
+    line.new(bar_index - i_ssl_len, bsl_level, bar_index + 8, bsl_level,
+         color=color.new(C_BEAR, 30), style=line.style_dashed, width=1)
+    label.new(bar_index + 8, ssl_level, " SSL",
+         textcolor=color.new(C_BULL, 20), color=color.new(color.black,100),
+         style=label.style_label_right, size=size.tiny)
+    label.new(bar_index + 8, bsl_level, " BSL",
+         textcolor=color.new(C_BEAR, 20), color=color.new(color.black,100),
+         style=label.style_label_right, size=size.tiny)
+    // Büyük pencere (50 bar) — daha kalın
+    line.new(bar_index - 50, ssl_50, bar_index + 8, ssl_50,
+         color=color.new(C_BULL, 55), style=line.style_dotted, width=2)
+    line.new(bar_index - 50, bsl_50, bar_index + 8, bsl_50,
+         color=color.new(C_BEAR, 55), style=line.style_dotted, width=2)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 4: SWEEP TESPİTİ
+// ═══════════════════════════════════════════════════════════════════════
+sweep_bull = low  < ssl_level and close > ssl_level and close > open  and in_kz
+sweep_bear = high > bsl_level and close < bsl_level and close < open  and in_kz
+sweep_bull_major = sweep_bull and low  < ssl_50
+sweep_bear_major = sweep_bear and high > bsl_50
+
+plotshape(sweep_bull, "Sweep↑", shape.diamond, location.belowbar,
+          color.new(C_ORANGE, 0), size=size.small)
+plotshape(sweep_bear, "Sweep↓", shape.diamond, location.abovebar,
+          color.new(C_ORANGE, 0), size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 5: SWING + MSS / BOS / CHOCH
+// ═══════════════════════════════════════════════════════════════════════
+swing_h = ta.pivothigh(high, i_swing_len, i_swing_len)
+swing_l = ta.pivotlow(low,   i_swing_len, i_swing_len)
+
+var float sh1 = na; var float sh2 = na
+var float sl1 = na; var float sl2 = na
+
+if not na(swing_h)
+    sh2 := sh1;  sh1 := swing_h
+if not na(swing_l)
+    sl2 := sl1;  sl1 := swing_l
+
+bos_bull   = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 > sh2 and close > open
+bos_bear   = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 < sl2 and close < open
+choch_bull = not na(sh1) and not na(sh2) and ta.crossover(close, sh1)  and sh1 < sh2 and close > open
+choch_bear = not na(sl1) and not na(sl2) and ta.crossunder(close, sl1) and sl1 > sl2 and close < open
+mss_bull   = choch_bull
+mss_bear   = choch_bear
+
+if mss_bull
+    label.new(bar_index, low - atr * 0.8, "MSS",
+         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
+         style=label.style_label_up, size=size.tiny)
+if mss_bear
+    label.new(bar_index, high + atr * 0.8, "MSS",
+         color=color.new(C_PURPLE, 10), textcolor=C_WHITE,
+         style=label.style_label_down, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 6: FVG + ORDER BLOCK
+// ═══════════════════════════════════════════════════════════════════════
+fvg_bull = low > high[2] and close[1] > high[2]
+fvg_bear = high < low[2] and close[1] < low[2]
+
+if i_show_fvg
+    if fvg_bull
+        box.new(bar_index-2, high[2], bar_index+8, low,
+             border_color=color.new(C_BULL, 60), bgcolor=color.new(C_BULL, 92))
+    if fvg_bear
+        box.new(bar_index-2, high, bar_index+8, low[2],
+             border_color=color.new(C_BEAR, 60), bgcolor=color.new(C_BEAR, 92))
+
+ob_bull_cond = bos_bull and close[i_swing_len] < open[i_swing_len]
+ob_bear_cond = bos_bear and close[i_swing_len] > open[i_swing_len]
+
+if i_show_ob
+    if ob_bull_cond
+        box.new(bar_index-i_swing_len, low[i_swing_len], bar_index+12, high[i_swing_len],
+             border_color=color.new(C_GREEN, 20), bgcolor=color.new(C_GREEN, 88))
+    if ob_bear_cond
+        box.new(bar_index-i_swing_len, low[i_swing_len], bar_index+12, high[i_swing_len],
+             border_color=color.new(C_RED, 20), bgcolor=color.new(C_RED, 88))
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 7: WAVE TREND
+// ═══════════════════════════════════════════════════════════════════════
+ap    = hlc3
+esa   = ta.ema(ap, i_wt_n1)
+d_wt  = ta.ema(math.abs(ap - esa), i_wt_n1)
+ci    = d_wt > 0.0 ? (ap - esa) / (0.015 * d_wt) : 0.0
+wt1   = ta.ema(ci, i_wt_n2)
+wt2   = ta.sma(wt1, 4)
+wt_xup = ta.crossover(wt1, wt2)  and wt1 < -40.0
+wt_xdn = ta.crossunder(wt1, wt2) and wt1 >  40.0
+wt_bull = wt1 > wt2; wt_bear = wt1 < wt2
+wt_os = wt1 < -50.0; wt_ob = wt1 > 50.0
+
+wt_bull_div = ta.lowest(low,10)  < ta.lowest(low,10)[5]   and ta.lowest(wt1,10)  > ta.lowest(wt1,10)[5]
+wt_bear_div = ta.highest(high,10)> ta.highest(high,10)[5] and ta.highest(wt1,10) < ta.highest(wt1,10)[5]
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 8: RSI + ROLLING CVD + MFI + HACİM
+// ═══════════════════════════════════════════════════════════════════════
+rsi         = ta.rsi(close, i_rsi_len)
+rsi_os      = rsi < 30.0;  rsi_ob = rsi > 70.0
+rsi_bull_div= ta.lowest(low,8)  < ta.lowest(low,8)[4]  and ta.lowest(rsi,8)  > ta.lowest(rsi,8)[4]
+rsi_bear_div= ta.highest(high,8)> ta.highest(high,8)[4] and ta.highest(rsi,8) < ta.highest(rsi,8)[4]
+
+buy_vol     = volume * ((close - low)  / math.max(high - low, 0.00001))
+sell_vol    = volume * ((high - close) / math.max(high - low, 0.00001))
+cvd_rolling = math.sum(buy_vol - sell_vol, i_cvd_len)
+cvd_pos     = cvd_rolling > 0.0; cvd_neg = cvd_rolling < 0.0
+cvd_bull_div= cvd_rolling > cvd_rolling[5] and close < close[5]
+cvd_bear_div= cvd_rolling < cvd_rolling[5] and close > close[5]
+
+mfi         = ta.mfi(hlc3, 14)
+mfi_bull    = mfi < 30.0; mfi_bear = mfi > 70.0
+vol_sma     = ta.sma(volume, 20)
+rvol        = volume / math.max(vol_sma, 0.00001)
+inst_vol    = rvol >= i_rvol_min
+
+// Wyckoff
+w_lo     = ta.lowest(low,   25); w_hi = ta.highest(high, 25)
+w_rng    = w_hi - w_lo
+in_range = ta.stdev(close, 25) / close < 0.025
+spring   = in_range and low  < w_lo + w_rng*0.10 and close > w_lo + w_rng*0.20 and inst_vol and close > open
+upthrust = in_range and high > w_hi - w_rng*0.10 and close < w_hi - w_rng*0.20 and inst_vol and close < open
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 9: DURUM MAKİNESİ
+// ═══════════════════════════════════════════════════════════════════════
+var int   ls=0; var float l_swept_low=na; var float l_disp_top=na
+var float l_ote_hi=na; var float l_ote_lo=na; var int l_phase_bar=0
+
+var int   ss=0; var float s_swept_hi=na; var float s_disp_bot=na
+var float s_ote_lo=na; var float s_ote_hi=na; var int s_phase_bar=0
+
+var int   day_cnt=0; var int last_day=0
+
+if dayofmonth != last_day
+    day_cnt := 0;  last_day := dayofmonth
+can_signal = day_cnt < i_daily_max
+
+// Timeout
+max_wait = i_mss_bars + i_ote_bars + 10
+if ls > 0 and (bar_index - l_phase_bar) > max_wait
+    ls := 0
+if ss > 0 and (bar_index - s_phase_bar) > max_wait
+    ss := 0
+
+// LONG geçişleri
+if ls == 0 and can_signal and sweep_bull and macro_bull and trending
+    ls := 1;  l_swept_low := low;  l_phase_bar := bar_index
+
+if ls == 1 and (mss_bull or bos_bull) and (bar_index - l_phase_bar) <= i_mss_bars
+    l_disp_top  := close
+    fib_r        = l_disp_top - nz(l_swept_low, close - atr*3.0)
+    l_ote_hi    := l_disp_top - fib_r * 0.618
+    l_ote_lo    := l_disp_top - fib_r * 0.786
+    ls := 2;  l_phase_bar := bar_index
+
+if ls == 2 and not na(l_ote_lo) and not na(l_ote_hi) and
+   close >= l_ote_lo and close <= l_ote_hi and (bar_index - l_phase_bar) <= i_ote_bars
+    ls := 3;  l_phase_bar := bar_index
+
+// SHORT geçişleri
+if ss == 0 and can_signal and sweep_bear and macro_bear and trending
+    ss := 1;  s_swept_hi := high;  s_phase_bar := bar_index
+
+if ss == 1 and (mss_bear or bos_bear) and (bar_index - s_phase_bar) <= i_mss_bars
+    s_disp_bot  := close
+    fib_r2       = nz(s_swept_hi, close + atr*3.0) - s_disp_bot
+    s_ote_lo    := s_disp_bot + fib_r2 * 0.618
+    s_ote_hi    := s_disp_bot + fib_r2 * 0.786
+    ss := 2;  s_phase_bar := bar_index
+
+if ss == 2 and not na(s_ote_lo) and not na(s_ote_hi) and
+   close >= s_ote_lo and close <= s_ote_hi and (bar_index - s_phase_bar) <= i_ote_bars
+    ss := 3;  s_phase_bar := bar_index
+
+// OTE görsel
+if i_show_ote
+    if (ls == 2 or ls == 3) and not na(l_ote_lo) and not na(l_ote_hi)
+        box.new(bar_index-1, l_ote_lo, bar_index+12, l_ote_hi,
+             border_color=color.new(C_GOLD, 25), bgcolor=color.new(C_GOLD, 91),
+             text=" OTE", text_color=color.new(C_GOLD, 20), text_size=size.tiny)
+    if (ss == 2 or ss == 3) and not na(s_ote_lo) and not na(s_ote_hi)
+        box.new(bar_index-1, s_ote_lo, bar_index+12, s_ote_hi,
+             border_color=color.new(C_ORANGE, 25), bgcolor=color.new(C_ORANGE, 91),
+             text=" OTE", text_color=color.new(C_ORANGE, 20), text_size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 10: ONAY FİLTRELERİ
+// ═══════════════════════════════════════════════════════════════════════
+lc1 = wt_xup or (wt_bull and wt_os)
+lc2 = rsi_os or rsi_bull_div
+lc3 = inst_vol
+lc4 = spring or cvd_bull_div
+lc5 = mfi_bull or cvd_pos
+lc6 = fvg_bull or ob_bull_cond
+l_onay = (lc1?1:0)+(lc2?1:0)+(lc3?1:0)+(lc4?1:0)+(lc5?1:0)+(lc6?1:0)
+
+sc1 = wt_xdn or (wt_bear and wt_ob)
+sc2 = rsi_ob or rsi_bear_div
+sc3 = inst_vol
+sc4 = upthrust or cvd_bear_div
+sc5 = mfi_bear or cvd_neg
+sc6 = fvg_bear or ob_bear_cond
+s_onay = (sc1?1:0)+(sc2?1:0)+(sc3?1:0)+(sc4?1:0)+(sc5?1:0)+(sc6?1:0)
+
+min_onay = i_mode=="SNIPER" ? 4 : i_mode=="PRECISION" ? 3 : 2
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 11: SİNYAL ÜRETİMİ
+// ═══════════════════════════════════════════════════════════════════════
+av_long_raw  = ls==3 and l_onay>=min_onay and in_kz and macro_bull and trending and can_signal
+av_short_raw = ss==3 and s_onay>=min_onay and in_kz and macro_bear and trending and can_signal
+av_long  = av_long_raw  and not av_long_raw[1]
+av_short = av_short_raw and not av_short_raw[1]
+
+if av_long
+    ls := 0;  day_cnt += 1
+if av_short
+    ss := 0;  day_cnt += 1
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 12: RİSK YÖNETİMİ
+// ═══════════════════════════════════════════════════════════════════════
+var float entry_p=na; var float sl_p=na
+var float tp1_p=na;   var float tp2_p=na; var float tp3_p=na
+var int   trade_d=0
+
+if av_long
+    entry_p  := close
+    sl_p     := nz(l_swept_low, close-atr*3.0) - atr*i_sl_buf
+    risk_l    = entry_p - sl_p
+    tp1_p    := entry_p + risk_l * i_tp1rr
+    tp2_p    := entry_p + risk_l * i_tp2rr
+    tp3_p    := entry_p + risk_l * i_tp3rr
+    trade_d  := 1
+
+if av_short
+    entry_p  := close
+    sl_p     := nz(s_swept_hi, close+atr*3.0) + atr*i_sl_buf
+    risk_s    = sl_p - entry_p
+    tp1_p    := entry_p - risk_s * i_tp1rr
+    tp2_p    := entry_p - risk_s * i_tp2rr
+    tp3_p    := entry_p - risk_s * i_tp3rr
+    trade_d  := -1
+
+risk_pct_live = trade_d!=0 and not na(sl_p) and not na(entry_p) ?
+                math.abs(entry_p-sl_p)/entry_p*100.0 : 0.0
+
+[st_trail, st_dir_t] = ta.supertrend(3.0, 10)
+trail_long  = trade_d== 1 and not na(tp2_p) and close>tp2_p ? st_trail : na
+trail_short = trade_d==-1 and not na(tp2_p) and close<tp2_p ? st_trail : na
+
+kapar_long  = trade_d==1  and not na(sl_p) and not na(tp3_p) and (
+              ta.crossunder(close,sl_p) or ta.crossover(close,tp3_p) or
+              (wt_xdn and wt_ob) or
+              (mss_bear and close > entry_p+(tp1_p-entry_p)*0.5))
+
+kapar_short = trade_d==-1 and not na(sl_p) and not na(tp3_p) and (
+              ta.crossover(close,sl_p)  or ta.crossunder(close,tp3_p) or
+              (wt_xup and wt_os) or
+              (mss_bull and close < entry_p-(entry_p-tp1_p)*0.5))
+
+if kapar_long or kapar_short
+    trade_d := 0
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 13: GRAFİK ÇİZGİLERİ — Temiz & Minimal
+// ═══════════════════════════════════════════════════════════════════════
+plot(hma_val, "HMA",
+     hma_up ? color.new(C_BULL,15) : color.new(C_BEAR,15), 2)
+plot(ema21, "EMA 21", color.new(C_BULL, 65), 1)
+plot(ema55, "EMA 55", color.new(C_BEAR, 65), 1)
+plot(vwap_val, "VWAP", color.new(C_WHITE, 45), 2)
+plot(st_trail, "Supertrend",
+     st_dir_t < 0 ? color.new(C_GREEN,25) : color.new(C_RED,25),
+     1, plot.style_linebr)
+
+// TP / SL seviyeleri
+plot(trade_d!=0 ? sl_p  : na,"SL",  color.new(C_RED,10), 2, plot.style_linebr)
+plot(trade_d!=0 ? tp1_p : na,"TP1", color.new(C_GREEN,50),1, plot.style_linebr)
+plot(trade_d!=0 ? tp2_p : na,"TP2", color.new(C_GREEN,30),1, plot.style_linebr)
+plot(trade_d!=0 ? tp3_p : na,"TP3", color.new(C_GREEN,5), 2, plot.style_linebr)
+plot(not na(trail_long)  ? trail_long  : na,"Trail",color.new(C_GOLD,15),2,plot.style_linebr)
+plot(not na(trail_short) ? trail_short : na,"Trail",color.new(C_GOLD,15),2,plot.style_linebr)
+
+// TP / SL etiketleri (sadece giriş anında)
+if av_long and not na(sl_p)
+    line.new(bar_index, sl_p,  bar_index+20, sl_p,
+         color=color.new(C_RED,20),   style=line.style_dashed, width=1)
+    line.new(bar_index, tp1_p, bar_index+20, tp1_p,
+         color=color.new(C_GREEN,50), style=line.style_dashed, width=1)
+    line.new(bar_index, tp2_p, bar_index+20, tp2_p,
+         color=color.new(C_GREEN,30), style=line.style_dashed, width=1)
+    line.new(bar_index, tp3_p, bar_index+20, tp3_p,
+         color=color.new(C_GREEN,10), style=line.style_dashed, width=1)
+
+if av_short and not na(sl_p)
+    line.new(bar_index, sl_p,  bar_index+20, sl_p,
+         color=color.new(C_RED,20),   style=line.style_dashed, width=1)
+    line.new(bar_index, tp1_p, bar_index+20, tp1_p,
+         color=color.new(C_GREEN,50), style=line.style_dashed, width=1)
+    line.new(bar_index, tp2_p, bar_index+20, tp2_p,
+         color=color.new(C_GREEN,30), style=line.style_dashed, width=1)
+    line.new(bar_index, tp3_p, bar_index+20, tp3_p,
+         color=color.new(C_GREEN,10), style=line.style_dashed, width=1)
+
+// Wyckoff işaretleri (temiz, küçük)
+plotshape(spring,   "Spring",   shape.triangleup,   location.belowbar,
+          color.new(C_BULL,0), size=size.tiny)
+plotshape(upthrust, "Upthrust", shape.triangledown, location.abovebar,
+          color.new(C_BEAR,0), size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 14: SİNYAL ETİKETLERİ — Pro Tasarım
+// ═══════════════════════════════════════════════════════════════════════
+
+// Progress bar yardımcı fonksiyonu
+bar5(int v) =>
+    v >= 5 ? "█████" : v == 4 ? "████░" : v == 3 ? "███░░" :
+    v == 2 ? "██░░░" : v == 1 ? "█░░░░" : "░░░░░"
+
+if av_long
+    conf_bar = bar5(l_onay)
+    txt = "▲  LONG  " + kz_name + "\n" +
+          "────────────────\n" +
+          "Onay  " + conf_bar + " " + str.tostring(l_onay) + "/6\n" +
+          "Entry  " + str.tostring(entry_p, "#.##") + "\n" +
+          "SL     " + str.tostring(sl_p,    "#.##") +
+          "  (" + str.tostring(risk_pct_live,"#.##") + "%)\n" +
+          "TP1    " + str.tostring(tp1_p,   "#.##") +
+          "  1:" + str.tostring(i_tp1rr,"#.#") + "\n" +
+          "TP2    " + str.tostring(tp2_p,   "#.##") +
+          "  1:" + str.tostring(i_tp2rr,"#.#") + "\n" +
+          "TP3    " + str.tostring(tp3_p,   "#.##") +
+          "  1:" + str.tostring(i_tp3rr,"#.#") + "\n" +
+          str.tostring(i_lev,"#") + "x  |  Risk %" + str.tostring(i_risk,"#.#")
+    label.new(bar_index, low - atr*3.5, txt,
+         color=color.new(C_GREEN, 5),
+         textcolor=C_WHITE,
+         style=label.style_label_up,
+         size=size.normal)
+
+if av_short
+    conf_bar = bar5(s_onay)
+    txt = "▼  SHORT  " + kz_name + "\n" +
+          "────────────────\n" +
+          "Onay  " + conf_bar + " " + str.tostring(s_onay) + "/6\n" +
+          "Entry  " + str.tostring(entry_p, "#.##") + "\n" +
+          "SL     " + str.tostring(sl_p,    "#.##") +
+          "  (" + str.tostring(risk_pct_live,"#.##") + "%)\n" +
+          "TP1    " + str.tostring(tp1_p,   "#.##") +
+          "  1:" + str.tostring(i_tp1rr,"#.#") + "\n" +
+          "TP2    " + str.tostring(tp2_p,   "#.##") +
+          "  1:" + str.tostring(i_tp2rr,"#.#") + "\n" +
+          "TP3    " + str.tostring(tp3_p,   "#.##") +
+          "  1:" + str.tostring(i_tp3rr,"#.#") + "\n" +
+          str.tostring(i_lev,"#") + "x  |  Risk %" + str.tostring(i_risk,"#.#")
+    label.new(bar_index, high + atr*3.5, txt,
+         color=color.new(C_RED, 5),
+         textcolor=C_WHITE,
+         style=label.style_label_down,
+         size=size.normal)
+
+if kapar_long
+    label.new(bar_index, high + atr*1.5, "EXIT  LONG",
+         color=color.new(C_GOLD, 5), textcolor=C_BG,
+         style=label.style_label_down, size=size.small)
+if kapar_short
+    label.new(bar_index, low - atr*1.5, "EXIT  SHORT",
+         color=color.new(C_GOLD, 5), textcolor=C_BG,
+         style=label.style_label_up, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 15: İSTATİSTİKLER
+// ═══════════════════════════════════════════════════════════════════════
+var int   total_t=0; var int wins=0; var float total_rr=0.0
+var int   cur_w=0;   var int max_w=0
+var int   cur_l=0;   var int max_l=0
+
+if av_long or av_short
+    total_t += 1
+
+if kapar_long and not na(entry_p) and not na(sl_p)
+    rr = (close-entry_p)/math.max(entry_p-sl_p,0.00001)
+    if rr > 0
+        wins+=1; cur_w+=1; cur_l:=0; max_w:=math.max(max_w,cur_w); total_rr+=rr
+    else
+        cur_w:=0; cur_l+=1; max_l:=math.max(max_l,cur_l)
+
+if kapar_short and not na(entry_p) and not na(sl_p)
+    rr = (entry_p-close)/math.max(sl_p-entry_p,0.00001)
+    if rr > 0
+        wins+=1; cur_w+=1; cur_l:=0; max_w:=math.max(max_w,cur_w); total_rr+=rr
+    else
+        cur_w:=0; cur_l+=1; max_l:=math.max(max_l,cur_l)
+
+wr     = total_t > 0 ? float(wins)/float(total_t)*100.0 : 0.0
+avg_rr = wins > 0 ? total_rr/float(wins) : 0.0
+ev     = wins > 0 ? (wr/100.0*avg_rr) - ((1.0-wr/100.0)*1.0) : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 16: DASHBOARD — Pro Panel Tasarımı
+//
+//  Bölümler:
+//  ① ORACLE PRIME — header
+//  ② ─── MARKET ─── separator
+//  ③-⑥ Piyasa koşulları
+//  ⑦ ─── STATE ─── separator
+//  ⑧-⑨ Long / Short durum
+//  ⑩ ─── CONFIRM ─── separator
+//  ⑪-⑫ Onay detayı
+//  ⑬ ─── SIGNALS ─── separator
+//  ⑭-⑱ İstatistikler
+// ═══════════════════════════════════════════════════════════════════════
+
+var table dt = table.new(position.top_right, 2, 22,
+     bgcolor=color.new(C_BG, 5),
+     border_color=color.new(#1e2a3a, 30),
+     border_width=1,
+     frame_color=color.new(C_BULL, 50),
+     frame_width=2)
+
+dc(int r, int c, string txt, color tc, color bc) =>
+    table.cell(dt, c, r, txt, text_color=tc, bgcolor=bc,
+               text_size=size.small, text_halign=text.align_left)
+
+dc_c(int r, int c, string txt, color tc, color bc) =>
+    table.cell(dt, c, r, txt, text_color=tc, bgcolor=bc,
+               text_size=size.small, text_halign=text.align_center)
+
+if i_dash and barstate.islast
+
+    // Renk hesapları
+    mtf_c   = macro_bull?C_BULL : macro_bear?C_BEAR : C_GOLD
+    mtf_t   = macro_bull?"▲ BULL" : macro_bear?"▼ BEAR" : "◆ MIX"
+    er_c    = er>0.6?C_BULL : er>0.4?C_GOLD : C_BEAR
+    adx_c   = adx_strong?C_BULL : C_GOLD
+    kz_c    = in_kz?C_BULL : color.new(C_GRAY,20)
+    rvol_c  = inst_vol?C_ORANGE : color.new(C_GRAY,20)
+    wr_c    = wr>65.0?C_BULL : wr>50.0?C_GOLD : C_BEAR
+    ev_c    = ev>0.5?C_BULL : ev>0.0?C_GOLD : C_BEAR
+
+    l_c     = ls==3?C_BULL : ls>0?C_GOLD : color.new(C_GRAY,30)
+    s_c     = ss==3?C_BEAR : ss>0?C_ORANGE : color.new(C_GRAY,30)
+    l_phase = ls==0?"● IDLE":ls==1?"→ SWEPT":ls==2?"→ MSS":"● OTE READY"
+    s_phase = ss==0?"● IDLE":ss==1?"→ SWEPT":ss==2?"→ MSS":"● OTE READY"
+
+    l_bar   = bar5(l_onay)
+    s_bar   = bar5(s_onay)
+    lc_ok   = l_onay>=min_onay
+    sc_ok   = s_onay>=min_onay
+
+    pos_c   = trade_d==1?C_BULL : trade_d==-1?C_BEAR : color.new(C_GRAY,30)
+    pos_t   = trade_d==1?"● LONG" : trade_d==-1?"● SHORT" : "○ —"
+
+    SEP  = color.new(#1a2035, 20)
+    SEP2 = color.new(#0a1020, 40)
+
+    // ── Başlık ────────────────────────────────────────────────────
+    dc_c(0,  0, "  ORACLE PRIME  v2.0  ",    C_BULL, color.new(C_HDR, 0))
+    dc_c(0,  1, i_mode + "  " + str.tostring(i_lev,"#")+"x", C_WHITE, color.new(C_HDR,0))
+
+    // ── MARKET separator ─────────────────────────────────────────
+    dc_c(1,  0, "── MARKET ──────────", color.new(C_GRAY,40), SEP)
+    dc_c(1,  1, "────────────────────", color.new(C_GRAY,40), SEP)
+
+    dc(2,  0, "  MTF Trend",           color.new(C_GRAY,20), C_BG2)
+    dc(2,  1, "  " + mtf_t,            mtf_c,                C_BG2)
+    dc(3,  0, "  Efficiency Ratio",    color.new(C_GRAY,20), C_BG2)
+    dc(3,  1, "  " + str.tostring(er,"#.##") + (trending?" ✓":" ✗"), er_c, C_BG2)
+    dc(4,  0, "  ADX",                 color.new(C_GRAY,20), C_BG2)
+    dc(4,  1, "  " + str.tostring(adx_val,"#.#") + (adx_strong?"  Strong":"  Weak"), adx_c, C_BG2)
+    dc(5,  0, "  Killzone",            color.new(C_GRAY,20), C_BG2)
+    dc(5,  1, "  " + (in_kz?"✓  "+kz_name:"✗  Out"), kz_c, C_BG2)
+    dc(6,  0, "  RVOL",                color.new(C_GRAY,20), C_BG2)
+    dc(6,  1, "  " + str.tostring(rvol,"#.##") + "x" + (inst_vol?"  INST":""), rvol_c, C_BG2)
+
+    // ── STATE separator ───────────────────────────────────────────
+    dc_c(7,  0, "── STATE ───────────", color.new(C_GRAY,40), SEP)
+    dc_c(7,  1, "────────────────────", color.new(C_GRAY,40), SEP)
+
+    dc(8,  0, "  LONG",                color.new(C_BULL,30), C_BG_L)
+    dc(8,  1, "  " + l_phase,          l_c,                  C_BG_L)
+    dc(9,  0, "  SHORT",               color.new(C_BEAR,30), C_BG_S)
+    dc(9,  1, "  " + s_phase,          s_c,                  C_BG_S)
+
+    // ── CONFIRM separator ─────────────────────────────────────────
+    dc_c(10, 0, "── CONFIRM ─────────", color.new(C_GRAY,40), SEP)
+    dc_c(10, 1, "────────────────────", color.new(C_GRAY,40), SEP)
+
+    lc_str = (lc1?"WT ":"")+(lc2?"RSI ":"")+(lc3?"VOL ":"")+(lc4?"WY ":"")+(lc5?"MFI ":"")+(lc6?"SMC":"")
+    sc_str = (sc1?"WT ":"")+(sc2?"RSI ":"")+(sc3?"VOL ":"")+(sc4?"WY ":"")+(sc5?"MFI ":"")+(sc6?"SMC":"")
+
+    dc(11, 0, "  L  " + l_bar,         lc_ok?C_BULL:C_GOLD,   C_BG_L)
+    dc(11, 1, "  " + str.tostring(l_onay)+"/6  "+lc_str, lc_ok?C_BULL:color.new(C_GRAY,20), C_BG_L)
+    dc(12, 0, "  S  " + s_bar,         sc_ok?C_BEAR:C_ORANGE,  C_BG_S)
+    dc(12, 1, "  " + str.tostring(s_onay)+"/6  "+sc_str, sc_ok?C_BEAR:color.new(C_GRAY,20), C_BG_S)
+
+    // ── POSITION ──────────────────────────────────────────────────
+    dc_c(13, 0, "── POSITION ────────", color.new(C_GRAY,40), SEP)
+    dc_c(13, 1, "────────────────────", color.new(C_GRAY,40), SEP)
+
+    dc(14, 0, "  Pozisyon",            color.new(C_GRAY,20),  C_BG_STAT)
+    dc(14, 1, "  " + pos_t,            pos_c,                 C_BG_STAT)
+    dc(15, 0, "  Bugün Sinyal",        color.new(C_GRAY,20),  C_BG_STAT)
+    dc(15, 1, "  " + str.tostring(day_cnt)+"/"+str.tostring(i_daily_max) +
+              (day_cnt>=i_daily_max?"  LIMIT":"  OK"),
+              day_cnt>=i_daily_max?C_ORANGE:C_BULL, C_BG_STAT)
+
+    // ── STATS separator ───────────────────────────────────────────
+    dc_c(16, 0, "── STATS ───────────", color.new(C_GRAY,40), SEP)
+    dc_c(16, 1, "────────────────────", color.new(C_GRAY,40), SEP)
+
+    dc(17, 0, "  Win Rate",            color.new(C_GRAY,20),  C_BG2)
+    dc(17, 1, "  " + str.tostring(wr,"#.#") + "%  (" +
+              str.tostring(wins)+"/"+str.tostring(total_t)+")", wr_c, C_BG2)
+    dc(18, 0, "  Avg RR",              color.new(C_GRAY,20),  C_BG2)
+    dc(18, 1, "  1 : " + str.tostring(avg_rr,"#.##"),
+              avg_rr>2.0?C_BULL:avg_rr>1.5?C_GOLD:C_BEAR, C_BG2)
+    dc(19, 0, "  Exp. Value",          color.new(C_GRAY,20),  C_BG2)
+    dc(19, 1, "  " + str.tostring(ev,"#.##") + " R",          ev_c, C_BG2)
+    dc(20, 0, "  Win Serisi",          color.new(C_GRAY,20),  C_BG2)
+    dc(20, 1, "  " + str.tostring(cur_w) + "  (max " + str.tostring(max_w) + ")",
+              cur_w>=3?C_BULL:C_WHITE, C_BG2)
+    dc(21, 0, "  ATR %  |  RVOL",     color.new(C_GRAY,20),  C_BG2)
+    dc(21, 1, "  " + str.tostring(atr_pct,"#.##") + "%  " +
+              str.tostring(rvol,"#.##") + "x",                C_WHITE, C_BG2)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BÖLÜM 17: ALERTLER — Webhook JSON
+// ═══════════════════════════════════════════════════════════════════════
+alertcondition(av_long,  "ORACLE  LONG",
+     '{"signal":"LONG","src":"ORACLE_PRIME_v2","sym":"{{ticker}}",' +
+     '"tf":"{{interval}}","px":"{{close}}",' +
+     '"sl":"'+str.tostring(sl_p,"#.######")+'",' +
+     '"tp1":"'+str.tostring(tp1_p,"#.######")+'",' +
+     '"tp2":"'+str.tostring(tp2_p,"#.######")+'",' +
+     '"tp3":"'+str.tostring(tp3_p,"#.######")+'",' +
+     '"conf":"'+str.tostring(l_onay)+'",' +
+     '"kz":"'+kz_name+'","er":"'+str.tostring(er,"#.##")+'",' +
+     '"rvol":"'+str.tostring(rvol,"#.##")+'","act":"buy"}')
+
+alertcondition(av_short, "ORACLE  SHORT",
+     '{"signal":"SHORT","src":"ORACLE_PRIME_v2","sym":"{{ticker}}",' +
+     '"tf":"{{interval}}","px":"{{close}}",' +
+     '"sl":"'+str.tostring(sl_p,"#.######")+'",' +
+     '"tp1":"'+str.tostring(tp1_p,"#.######")+'",' +
+     '"tp2":"'+str.tostring(tp2_p,"#.######")+'",' +
+     '"tp3":"'+str.tostring(tp3_p,"#.######")+'",' +
+     '"conf":"'+str.tostring(s_onay)+'",' +
+     '"kz":"'+kz_name+'","er":"'+str.tostring(er,"#.##")+'",' +
+     '"rvol":"'+str.tostring(rvol,"#.##")+'","act":"sell"}')
+
+alertcondition(kapar_long or kapar_short, "ORACLE  EXIT",
+     '{"signal":"EXIT","src":"ORACLE_PRIME_v2",' +
+     '"sym":"{{ticker}}","px":"{{close}}","act":"close"}')
+
+alertcondition(ls==3, "ORACLE  OTE LONG READY",
+     '{"signal":"OTE_READY","dir":"LONG","sym":"{{ticker}}",' +
+     '"px":"{{close}}","conf":"'+str.tostring(l_onay)+'"}')
+
+alertcondition(ss==3, "ORACLE  OTE SHORT READY",
+     '{"signal":"OTE_READY","dir":"SHORT","sym":"{{ticker}}",' +
+     '"px":"{{close}}","conf":"'+str.tostring(s_onay)+'"}')
+
+alertcondition(sweep_bull_major, "ORACLE  MAJOR BULL SWEEP",
+     '{"signal":"MAJOR_SWEEP","dir":"BULL","sym":"{{ticker}}","px":"{{close}}"}')
+alertcondition(sweep_bear_major, "ORACLE  MAJOR BEAR SWEEP",
+     '{"signal":"MAJOR_SWEEP","dir":"BEAR","sym":"{{ticker}}","px":"{{close}}"}')
