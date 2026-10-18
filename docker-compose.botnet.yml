@@ -1,0 +1,89 @@
+---
+# BTC/USDT çoklu bot sistemi: 6 sensör + öğrenen bot + ana beyin (Freqtrade)
+#
+#   cp .env.example .env    # anahtarları doldur
+#   docker compose -f docker-compose.botnet.yml up -d
+#   docker compose -f docker-compose.botnet.yml logs -f brain
+#
+# Tüm servisler aynı user_data klasörünü paylaşır; sinyaller user_data/botnet/signals.db'de.
+
+x-sensor: &sensor
+  image: freqtradeorg/freqtrade:stable
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    PYTHONPATH: /freqtrade
+    BOTNET_DB: /freqtrade/user_data/botnet/signals.db
+    BOTNET_WEIGHTS: /freqtrade/user_data/botnet/weights.json
+  volumes:
+    - "./user_data:/freqtrade/user_data"
+    - "./botnet:/freqtrade/botnet:ro"
+  entrypoint: ["python", "-m"]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  trend:
+    <<: *sensor
+    container_name: bot-trend
+    command: ["botnet.sensors.trend"]
+
+  orderflow:
+    <<: *sensor
+    container_name: bot-orderflow
+    command: ["botnet.sensors.orderflow"]
+
+  orderbook:
+    <<: *sensor
+    container_name: bot-orderbook
+    command: ["botnet.sensors.orderbook"]
+
+  derivatives:
+    <<: *sensor
+    container_name: bot-derivatives
+    command: ["botnet.sensors.derivatives"]
+
+  liquidity:
+    <<: *sensor
+    container_name: bot-liquidity
+    command: ["botnet.sensors.liquidity"]
+
+  sentiment:
+    <<: *sensor
+    container_name: bot-sentiment
+    command: ["botnet.sensors.sentiment"]
+
+  learner:
+    <<: *sensor
+    container_name: bot-learner
+    command: ["botnet.learner.learner"]
+
+  brain:
+    image: freqtradeorg/freqtrade:stable
+    container_name: bot-brain
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PYTHONPATH: /freqtrade
+      BOTNET_DB: /freqtrade/user_data/botnet/signals.db
+      BOTNET_WEIGHTS: /freqtrade/user_data/botnet/weights.json
+    volumes:
+      - "./user_data:/freqtrade/user_data"
+      - "./botnet:/freqtrade/botnet:ro"
+    ports:
+      # FreqUI / REST API - sadece sunucunun kendisinden erişilebilir (SSH tüneli ile aç)
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - trend
+      - orderflow
+      - derivatives
+      - liquidity
+    command: >
+      trade
+      --logfile /freqtrade/user_data/logs/brain.log
+      --db-url sqlite:////freqtrade/user_data/tradesv3.brain.sqlite
+      --config /freqtrade/botnet/config/config_okx_futures.json
+      --strategy BrainStrategy

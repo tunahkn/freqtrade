@@ -12,6 +12,11 @@ user_data/*
 user_data/freqaimodels/*
 user_data/models/*
 user_data/notebooks/*
+# botnet (BTC çoklu bot sistemi)
+!user_data/strategies/
+user_data/strategies/*
+!user_data/strategies/BrainStrategy.py
+!botnet/config/config_okx_futures.json
 freqtrade-plot.html
 freqtrade-profit-plot.html
 freqtrade/rpc/api_server/ui/*

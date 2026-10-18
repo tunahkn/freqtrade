@@ -288,6 +288,15 @@ extend-ignore = [
 max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
+"botnet/**/*.py" = [
+  "RUF001", "RUF002", "RUF003",  # Türkçe karakterler (ı, ş, ğ) bilinçli
+]
+"botnet/tests/**.py" = [
+  "S101",  # allow assert in tests
+]
+"user_data/strategies/BrainStrategy.py" = [
+  "RUF001", "RUF002", "RUF003",  # Türkçe karakterler bilinçli
+]
 "freqtrade/freqai/**/*.py" = [
   "S311",  # Standard pseudo-random generators are not suitable for cryptographic purposes
 ]
